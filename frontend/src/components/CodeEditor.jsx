@@ -6,6 +6,7 @@ import { errorParser } from '../services/errorParser';
 import { realtimeValidator } from '../services/realtimeValidator';
 import { extensionLoader } from '../services/extensionLoader';
 import { collaborationService } from '../services/collaborationService';
+import { lspClient } from '../services/lspClient';
 import ScribbleOverlay from './ScribbleOverlay';
 import OutputPanel from './OutputPanel';
 
@@ -232,15 +233,29 @@ function CodeEditor({ isScribbleMode, scribbleTool = 'pen', scribbleColor = '#ff
 
         extensionLoader.loadActiveExtensions(monaco);
 
+        // ── LSP Integration ──────────────────────────────
+        lspClient.initialize(monaco);
+
         const handleRefreshExtensions = () => {
             extensionLoader.loadActiveExtensions(monaco);
         };
         window.addEventListener('extension-installed', handleRefreshExtensions);
 
+        // Format Document shortcut (Shift+Alt+F)
+        editor.addAction({
+            id: 'format-document',
+            label: 'Format Document',
+            keybindings: [monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+            run: () => {
+                editor.getAction('editor.action.formatDocument')?.run();
+            }
+        });
+
         editor.onDidDispose(() => {
             window.removeEventListener('extension-installed', handleRefreshExtensions);
             extensionLoader.disposeAll();
             realtimeValidator.dispose();
+            lspClient.dispose();
         });
 
         const isHighlightContext = editor.createContextKey('isHighlight', false);
@@ -346,6 +361,14 @@ function CodeEditor({ isScribbleMode, scribbleTool = 'pen', scribbleColor = '#ff
         };
     }, [activeFileId, updateFileContent]);
 
+    // Notify LSP client when active file changes
+    useEffect(() => {
+        if (activeFile && monacoRef.current) {
+            const fileUri = `file:///${activeFile.id}.${activeFile.language}`;
+            lspClient.openDocument(fileUri, activeFile.language, activeFile.content);
+        }
+    }, [activeFile?.id, activeFile?.language]);
+
     if (!activeFile) {
         return (
             <div className="welcome">
@@ -409,6 +432,9 @@ function CodeEditor({ isScribbleMode, scribbleTool = 'pen', scribbleColor = '#ff
                 onChange={(value) => {
                     updateFileContent(activeFile.id, value || '');
                     collaborationService.sendCodeChange(value || '', activeFile.id);
+                    // Notify LSP server of content changes
+                    const fileUri = `file:///${activeFile.id}.${activeFile.language}`;
+                    lspClient.changeDocument(fileUri, activeFile.language, value || '');
                 }}
                 theme={getMonacoTheme(theme)}
                 options={{

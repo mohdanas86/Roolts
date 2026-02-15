@@ -369,14 +369,18 @@ class MockProvider(AIProvider):
     
     def generate(self, prompt: str, system_prompt: str = None, messages: list = None) -> Dict[str, Any]:
         content = (
-            "### AI Assistant: Setup Required\n\n"
-            "I'm currently running in **offline/mock mode** because no AI API keys (Gemini, DeepSeek, etc.) are configured.\n\n"
-            "**To enable full AI support:**\n"
-            "1. Open the [backend/.env](file:///d:/Roolts-main (4)/Roolts-main/backend/.env) file.\n"
-            "2. Add your API keys for DeepSeek, Gemini, or Claude.\n"
-            "3. Restart the backend server.\n\n"
-            "> [!TIP]\n"
-            "> DeepSeek is highly recommended for coding tasks!"
+            "### 🔐 AI Setup Required\n\n"
+            "The AI assistant is running in **offline mode** because no API keys are configured on this server.\n\n"
+            "**How to enable AI:**\n\n"
+            "**Option 1 — Server Admin (recommended for shared access):**\n"
+            "```bash\n"
+            "cd backend/scripts\n"
+            "python vault_tool.py add gemini YOUR_GEMINI_KEY\n"
+            "# Then restart the server\n"
+            "```\n\n"
+            "**Option 2 — Personal Key (just for you):**\n"
+            "Click the ⚙️ Settings icon in the AI panel and enter your own API key.\n\n"
+            "> **Tip:** Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com/apikey)"
         )
         return {
             'response': content,
@@ -533,20 +537,20 @@ class AISelector:
     
     def select_best_model(self, prompt: str) -> str:
         """
-        Select the best AI model for the given prompt.
-        Always prefers DeepSeek R1 per user request.
+        Select the best AI model for the given prompt based on scores.
+        Prefers DeepSeek for coding, Gemini for speed/general, with smart fallback.
         """
         if not self.available:
             raise ValueError("No AI models available")
-            
-        # USER REQUEST: Use DeepSeek R1 for everything by default
-        # Prioritize 'huggingface' (DeepSeek-R1-Distill-Qwen-7B) or 'deepseek'
-        for primary in ['huggingface', 'deepseek']:
-            if primary in self.available:
-                return primary
-                
-        # Fallback to whatever is available if DeepSeek isn't found
-        return self.available[0]
+        
+        scores = self._calculate_scores(prompt)
+        
+        if not scores:
+            return self.available[0]
+        
+        # Pick the model with the highest score
+        best_model = max(scores, key=scores.get)
+        return best_model
     
     def explain_selection(self, prompt: str) -> Dict[str, Any]:
         """
@@ -650,15 +654,13 @@ class MultiAIService:
     def get_available_models(self) -> list:
         """
         Get list of configured AI models.
-        Filters out Gemini and Claude per user request for default tasks.
+        Returns all properly configured providers.
         """
         available = []
         for name, provider in self.providers.items():
+            if name == 'mock':
+                continue  # mock is always available as fallback, don't list it
             if provider is not None and provider.is_configured():
-                # Strictly exclude gemini/claude unless it's a mock or forced by user key 
-                # (which is handled in initialization where user_api_keys are passed)
-                if name in ['gemini', 'claude']:
-                    continue
                 available.append(name)
         return available
     

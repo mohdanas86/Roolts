@@ -291,13 +291,100 @@ def handle_terminal_input(data):
 
 
 
+# ── LSP (Language Server Protocol) Integration ──────────────────────────────
+from services.lsp_manager import lsp_manager
+
+@app.route('/api/lsp/status', methods=['GET'])
+def lsp_status():
+    """Return LSP server availability and status."""
+    return jsonify({
+        'available': lsp_manager.get_available_languages(),
+        'running': lsp_manager.get_status(),
+    })
+
+@app.route('/api/lsp/install/<language>', methods=['POST'])
+def lsp_install(language):
+    """Trigger installation of a language server."""
+    import importlib
+    try:
+        setup = importlib.import_module('scripts.setup_lsp')
+        if language == 'python':
+            ok = setup.install_python_lsp()
+        elif language == 'java':
+            ok = setup.install_jdtls()
+        else:
+            return jsonify({'error': f'No installer for {language}'}), 400
+        return jsonify({'success': ok})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@socketio.on('lsp:start')
+def handle_lsp_start(data):
+    """Client requests a language server."""
+    from flask import request as flask_request
+    language = data.get('language')
+    session_id = flask_request.sid
+
+    if not language:
+        emit('lsp:error', {'error': 'No language specified'})
+        return
+
+    print(f"[LSP-SocketIO] Start requested: {language} for session {session_id[:8]}")
+
+    def on_lsp_message(message):
+        """Callback when language server sends a message."""
+        socketio.emit('lsp:message', {
+            'language': language,
+            'message': message,
+        }, room=session_id)
+
+    try:
+        lsp_manager.start_server(session_id, language, on_lsp_message)
+        emit('lsp:started', {'language': language, 'status': 'running'})
+    except Exception as e:
+        print(f"[LSP-SocketIO] Failed to start {language}: {e}")
+        emit('lsp:error', {'language': language, 'error': str(e)})
+
+@socketio.on('lsp:message')
+def handle_lsp_message(data):
+    """Client sends a JSON-RPC message to the language server."""
+    from flask import request as flask_request
+    language = data.get('language')
+    message = data.get('message')
+    session_id = flask_request.sid
+
+    if language and message:
+        lsp_manager.send_message(session_id, language, message)
+
+@socketio.on('lsp:stop')
+def handle_lsp_stop(data):
+    """Client requests stopping a language server."""
+    from flask import request as flask_request
+    language = data.get('language')
+    session_id = flask_request.sid
+
+    if language:
+        lsp_manager.stop_server(session_id, language)
+        emit('lsp:stopped', {'language': language})
+
+# Clean up LSP servers when client disconnects
+_original_disconnect = handle_disconnect
+@socketio.on('disconnect')
+def handle_disconnect_with_lsp():
+    from flask import request as flask_request
+    session_id = flask_request.sid
+    lsp_manager.stop_all_for_session(session_id)
+    print(f"[LSP-SocketIO] Cleaned up servers for session {session_id[:8]}")
+    # Call original disconnect handler logic
+    print(f"Client disconnected: {session_id}")
+
 
 if __name__ == '__main__':
     print("\n>>> Roolts Backend Starting (with SocketIO)...")
     print("=" * 50)
     print("API Server: http://127.0.0.1:5000")
     print("SocketIO:   Enabled (Threading Mode)")
-    print("Features:   Video Calling, Remote Control, Chat")
+    print("Features:   Video Calling, Remote Control, Chat, LSP")
     print("=" * 50)
     print("\nPress Ctrl+C to stop\n")
     

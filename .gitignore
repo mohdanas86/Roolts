@@ -65,3 +65,8 @@ brain/
 frontend/dist/
 dist/
 build/
+
+# Vault Secrets (NEVER commit these)
+backend/.vault_key
+backend/config/sealed_secrets.bin
+.vault_key

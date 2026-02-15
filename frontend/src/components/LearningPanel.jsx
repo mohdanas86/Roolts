@@ -1,12 +1,31 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-    FiSettings, FiX, FiPaperclip, FiSend, FiZap, FiCopy, FiCheck, FiRotateCcw, FiPlay, FiGrid
+    FiSettings, FiX, FiPaperclip, FiSend, FiZap, FiCopy, FiCheck, FiRotateCcw, FiPlay, FiGrid, FiChevronDown, FiChevronUp
 } from 'react-icons/fi';
 import { useFileStore, useUIStore } from '../store';
 import { aiService } from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+const CopyButton = ({ content }) => {
+    const [copied, setCopied] = useState(false);
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(content);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy code:', err);
+        }
+    };
+    return (
+        <button className={`assistant-copy-btn ${copied ? 'copied' : ''}`} onClick={handleCopy} title="Copy code">
+            {copied ? <FiCheck size={12} /> : <FiCopy size={12} />}
+            <span>{copied ? 'Copied!' : 'Copy'}</span>
+        </button>
+    );
+};
 
 function LearningPanel({ onBack }) {
     const [query, setQuery] = useState('');
@@ -15,18 +34,38 @@ function LearningPanel({ onBack }) {
         return saved ? JSON.parse(saved) : [];
     });
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingFeature, setLoadingFeature] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
     const [provider, setProvider] = useState(() => localStorage.getItem('roolts_ai_provider') || 'roolts');
     const [apiKey, setApiKey] = useState(() => localStorage.getItem('roolts_ai_key') || '');
+    const [aiStatus, setAiStatus] = useState({ configured: null, models: [] });
+    const [translateLang, setTranslateLang] = useState('python');
+    const [expandedCategory, setExpandedCategory] = useState(null);
+    const [showAllTools, setShowAllTools] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
 
     const { files, activeFileId } = useFileStore();
     const { addNotification, toggleRightPanel, setRightPanelTab } = useUIStore();
     const activeFile = files.find(f => f.id === activeFileId);
     const chatEndRef = useRef(null);
 
+    // Check AI status on mount
+    useEffect(() => {
+        aiService.status()
+            .then(res => setAiStatus({ configured: res.data.configured, models: res.data.available_models || [] }))
+            .catch(() => setAiStatus({ configured: false, models: [] }));
+    }, []);
+
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatHistory, isLoading]);
+
+    // Sync translateLang with activeFile
+    useEffect(() => {
+        if (activeFile?.language && activeFile.language !== 'plaintext') {
+            setTranslateLang(activeFile.language);
+        }
+    }, [activeFileId, activeFile?.language]);
 
     useEffect(() => {
         localStorage.setItem('roolts_ai_provider', provider);
@@ -64,16 +103,114 @@ function LearningPanel({ onBack }) {
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }]);
         } catch (error) {
-            addNotification({ type: 'error', message: 'AI chat failed' });
+            const errMsg = error.response?.data?.response || error.message || 'AI chat failed — check your connection.';
+            setChatHistory(prev => [...prev, {
+                role: 'assistant',
+                content: `> ⚠️ **Error:** ${errMsg}`,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }]);
         }
         setIsLoading(false);
     };
 
+    // Feature action handler — calls specialized AI endpoints
+    const handleFeature = async (featureName, apiCall) => {
+        if (!activeFile || !activeFile.content) {
+            addNotification({ type: 'warning', message: 'Open a file first' });
+            return;
+        }
+        setLoadingFeature(featureName);
+        setIsLoading(true);
+
+        // Add a "user" bubble showing what feature was triggered
+        setChatHistory(prev => [...prev, {
+            role: 'user',
+            content: `🔧 **${featureName}** on \`${activeFile.name || 'current file'}\``,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+
+        try {
+            const response = await apiCall(activeFile.content, activeFile.language || 'plaintext');
+            const data = response.data;
+            setChatHistory(prev => [...prev, {
+                role: 'assistant',
+                content: data.response || data.error || 'No response.',
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }]);
+        } catch (error) {
+            setChatHistory(prev => [...prev, {
+                role: 'assistant',
+                content: `> ⚠️ **${featureName} failed:** ${error.response?.data?.error || error.message}`,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }]);
+        }
+        setLoadingFeature(null);
+        setIsLoading(false);
+    };
+
+    // ── Feature Categories with all 8 groups ──
+    const featureCategories = [
+        {
+            id: 'refactor', title: '🔄 Refactoring', features: [
+                { icon: '🔄', label: 'Refactor', desc: 'Clean & optimize code', action: () => handleFeature('Refactor', aiService.refactor) },
+                { icon: '🧩', label: 'Extract', desc: 'Extract functions/classes', action: () => handleFeature('Extract Functions', aiService.extractFunctions) },
+                { icon: '✏️', label: 'Rename', desc: 'Smart rename variables', action: () => handleFeature('Rename Variables', aiService.renameVariables) },
+                { icon: '🌐', label: 'Translate', desc: `Convert to ${translateLang}`, action: () => handleFeature('Translate Code', (code, lang) => aiService.translate(code, lang, translateLang)) },
+            ]
+        },
+        {
+            id: 'analysis', title: '📊 Analysis', features: [
+                { icon: '⚡', label: 'Performance', desc: 'Profile & optimize speed', action: () => handleFeature('Performance Analysis', aiService.analyzePerformance) },
+                { icon: '💀', label: 'Dead Code', desc: 'Find unused code', action: () => handleFeature('Dead Code Detection', aiService.detectDeadCode) },
+                { icon: '🔬', label: 'Complexity', desc: 'Cyclomatic complexity', action: () => handleFeature('Complexity Analysis', aiService.analyzeComplexity) },
+                { icon: '🔗', label: 'Dependencies', desc: 'Call graph & coupling', action: () => handleFeature('Dependency Analysis', aiService.analyzeDependencies) },
+            ]
+        },
+        {
+            id: 'testing', title: '🧪 Testing', features: [
+                { icon: '🧪', label: 'Unit Tests', desc: 'Generate unit tests', action: () => handleFeature('Generate Tests', aiService.generateTests) },
+                { icon: '🎯', label: 'Edge Cases', desc: 'Boundary & error tests', action: () => handleFeature('Edge Case Tests', aiService.generateEdgeTests) },
+            ]
+        },
+        {
+            id: 'docs', title: '📝 Documentation', features: [
+                { icon: '📝', label: 'Docstrings', desc: 'Add documentation', action: () => handleFeature('Generate Docs', aiService.generateDocs) },
+                { icon: '📄', label: 'README', desc: 'Generate README.md', action: () => handleFeature('Generate README', aiService.generateReadme) },
+                { icon: '📚', label: 'API Docs', desc: 'Full API reference', action: () => handleFeature('API Documentation', aiService.generateApiDocs) },
+                { icon: '💬', label: 'Comments', desc: 'Add inline comments', action: () => handleFeature('Inline Comments', aiService.addInlineComments) },
+            ]
+        },
+        {
+            id: 'debug', title: '🐛 Debugging', features: [
+                { icon: '🐛', label: 'Fix Bugs', desc: 'Find & fix bugs', action: () => handleFeature('Fix Code', aiService.fixCode) },
+                { icon: '📋', label: 'Stack Trace', desc: 'Analyze error traces', action: () => handleFeature('Stack Trace Analysis', (code, lang) => aiService.analyzeStackTrace(code, lang, '')) },
+                { icon: '🔮', label: 'Predict Bugs', desc: 'Find bugs before they hit', action: () => handleFeature('Bug Prediction', aiService.predictBugs) },
+                { icon: '🔍', label: 'Review', desc: 'Security & style review', action: () => handleFeature('Code Review', aiService.review) },
+            ]
+        },
+        {
+            id: 'patterns', title: '🏗️ Patterns', features: [
+                { icon: '🏛️', label: 'Design Patterns', desc: 'Suggest patterns', action: () => handleFeature('Design Patterns', aiService.suggestDesignPatterns) },
+                { icon: '🚀', label: 'Migration', desc: 'Framework upgrades', action: () => handleFeature('Migration Helper', aiService.generateMigration) },
+            ]
+        },
+    ];
+
+    // Top-level quick-access buttons (most used)
+    const topFeatures = [
+        { icon: '🔄', label: 'Refactor', action: () => handleFeature('Refactor', aiService.refactor) },
+        { icon: '🧪', label: 'Tests', action: () => handleFeature('Generate Tests', aiService.generateTests) },
+        { icon: '📝', label: 'Docs', action: () => handleFeature('Generate Docs', aiService.generateDocs) },
+        { icon: '🐛', label: 'Fix', action: () => handleFeature('Fix Code', aiService.fixCode) },
+        { icon: '⚡', label: 'Perf', action: () => handleFeature('Performance Analysis', aiService.analyzePerformance) },
+    ];
+
     const quickActions = [
-        { label: 'Summarize', query: 'Summarize this code briefly.' },
-        { label: 'Explain', query: 'Explain the logic of this file.' },
-        { label: 'Optimize', query: 'Suggest performance optimizations.' },
-        { label: 'Tamil', query: 'Translate the main comments to Tamil.' }
+        { label: '💡 Explain', query: 'Explain this code step by step. What does each function do?' },
+        { label: '⚡ Optimize', query: 'Suggest performance optimizations and best practices for this code.' },
+        { label: '🔒 Security', query: 'Analyze this code for security vulnerabilities and suggest hardening measures.' },
+        { label: '🧠 Patterns', query: 'What design patterns are used here? Suggest improvements.' },
+        { label: '🔍 Search', query: searchQuery ? `Find all code related to: ${searchQuery}` : 'Find all database queries in this code' },
     ];
 
     return (
@@ -83,6 +220,11 @@ function LearningPanel({ onBack }) {
                 <div className="assistant-header-left">
                     <FiZap className="assistant-icon" />
                     <span className="assistant-title">AI Assistant</span>
+                    {aiStatus.configured !== null && (
+                        <span className={`assistant-status ${aiStatus.configured ? 'online' : 'offline'}`}>
+                            {aiStatus.configured ? '● Online' : '● Offline'}
+                        </span>
+                    )}
                 </div>
                 <div className="assistant-header-right">
                     <button className="assistant-action-btn" onClick={() => setRightPanelTab('apps')} title="Open Apps">
@@ -124,6 +266,87 @@ function LearningPanel({ onBack }) {
                 </div>
             )}
 
+            {/* Top Feature Toolbar — Quick Access */}
+            <div className="assistant-toolbar">
+                {topFeatures.map((feat, i) => (
+                    <button
+                        key={i}
+                        className={`assistant-feature-btn ${loadingFeature === feat.label ? 'loading' : ''}`}
+                        onClick={feat.action}
+                        disabled={isLoading}
+                        title={feat.desc}
+                    >
+                        <span className="feature-icon">{feat.icon}</span>
+                        <span className="feature-label">{feat.label}</span>
+                    </button>
+                ))}
+                <select
+                    className="assistant-translate-select"
+                    value={translateLang}
+                    onChange={(e) => setTranslateLang(e.target.value)}
+                    title="Target language for translation"
+                >
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="typescript">TypeScript</option>
+                    <option value="java">Java</option>
+                    <option value="c">C</option>
+                    <option value="cpp">C++</option>
+                    <option value="go">Go</option>
+                    <option value="rust">Rust</option>
+                </select>
+                {chatHistory.length > 0 && (
+                    <button
+                        className="assistant-feature-btn clear"
+                        onClick={() => { setChatHistory([]); localStorage.removeItem('roolts_ai_chat_history'); }}
+                        title="Clear chat history"
+                    >
+                        <span className="feature-icon"><FiRotateCcw size={12} /></span>
+                        <span className="feature-label">Clear</span>
+                    </button>
+                )}
+            </div>
+
+            {/* More Tools Toggle */}
+            <div className={`assistant-tools-toggle ${showAllTools ? 'active' : ''}`} onClick={() => setShowAllTools(!showAllTools)}>
+                <span>{showAllTools ? 'Close Tools' : 'Explore All AI Tools'}</span>
+                {showAllTools ? <FiChevronUp size={14} /> : <FiChevronDown size={14} />}
+            </div>
+
+            {/* Expanded Feature Categories */}
+            {showAllTools && (
+                <div className="assistant-categories">
+                    {featureCategories.map(cat => (
+                        <div key={cat.id} className={`assistant-category ${expandedCategory === cat.id ? 'expanded' : ''}`}>
+                            <button
+                                className="assistant-category-header"
+                                onClick={() => setExpandedCategory(expandedCategory === cat.id ? null : cat.id)}
+                            >
+                                <span>{cat.title}</span>
+                                <span className="category-arrow">{expandedCategory === cat.id ? '▾' : '▸'}</span>
+                            </button>
+                            {expandedCategory === cat.id && (
+                                <div className="assistant-category-grid">
+                                    {cat.features.map((feat, j) => (
+                                        <button
+                                            key={j}
+                                            className={`assistant-feature-card ${loadingFeature === feat.label ? 'loading' : ''}`}
+                                            onClick={feat.action}
+                                            disabled={isLoading}
+                                            title={feat.desc}
+                                        >
+                                            <span className="card-icon">{feat.icon}</span>
+                                            <span className="card-label">{feat.label}</span>
+                                            <span className="card-desc">{feat.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
             {/* Conversation Area */}
             <div className="assistant-chat-history">
                 {chatHistory.map((msg, idx) => (
@@ -133,11 +356,25 @@ function LearningPanel({ onBack }) {
                                 components={{
                                     code({ inline, className, children, ...props }) {
                                         const match = /language-(\w+)/.exec(className || '');
-                                        return !inline && match ? (
-                                            <div className="assistant-code">
-                                                <SyntaxHighlighter style={vscDarkPlus} language={match[1]} PreTag="pre">
-                                                    {String(children).replace(/\n$/, '')}
-                                                </SyntaxHighlighter>
+                                        const lang = match ? match[1] : 'text';
+                                        const codeContent = String(children).replace(/\n$/, '');
+
+                                        return !inline ? (
+                                            <div className="assistant-code-block">
+                                                <div className="assistant-code-header">
+                                                    <span className="assistant-code-lang">{lang}</span>
+                                                    <CopyButton content={codeContent} />
+                                                </div>
+                                                <div className="assistant-code">
+                                                    <SyntaxHighlighter
+                                                        style={vscDarkPlus}
+                                                        language={lang}
+                                                        PreTag="div"
+                                                        customStyle={{ margin: 0, padding: '12px', background: 'transparent' }}
+                                                    >
+                                                        {codeContent}
+                                                    </SyntaxHighlighter>
+                                                </div>
                                             </div>
                                         ) : (
                                             <code className="assistant-inline-code" {...props}>{children}</code>
@@ -147,7 +384,9 @@ function LearningPanel({ onBack }) {
                             >
                                 {msg.content}
                             </ReactMarkdown>
-                            <span className="assistant-time">{msg.timestamp}</span>
+                            <div className="assistant-meta">
+                                <span className="assistant-time">{msg.timestamp}</span>
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -255,13 +494,7 @@ function LearningPanel({ onBack }) {
                     border: 1px solid var(--border-primary);
                 }
 
-                .assistant-time {
-                    display: block;
-                    font-size: 10px;
-                    opacity: 0.6;
-                    margin-top: 6px;
-                    text-align: right;
-                }
+
 
                 .assistant-footer {
                     padding: var(--space-4);
@@ -330,6 +563,37 @@ function LearningPanel({ onBack }) {
                 .assistant-code { margin-top: 8px; border-radius: 4px; overflow: hidden; font-size: 12px; }
                 .assistant-inline-code { background: var(--bg-elevated); padding: 2px 4px; border-radius: 4px; font-family: var(--font-mono); }
                 
+                .assistant-meta {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-top: 6px;
+                }
+                .assistant-model {
+                    font-size: 10px;
+                    opacity: 0.5;
+                    font-style: italic;
+                }
+                .assistant-time {
+                    font-size: 10px;
+                    opacity: 0.6;
+                    text-align: right;
+                }
+                .assistant-status {
+                    font-size: 11px;
+                    padding: 2px 8px;
+                    border-radius: 10px;
+                    font-weight: 500;
+                }
+                .assistant-status.online {
+                    color: #3fb950;
+                    background: rgba(63, 185, 80, 0.1);
+                }
+                .assistant-status.offline {
+                    color: #f85149;
+                    background: rgba(248, 81, 73, 0.1);
+                }
+
                 .assistant-popover {
                     position: absolute; bottom: 80px; left: 16px; right: 16px;
                     background: var(--bg-elevated); border: 1px solid var(--border-primary);
@@ -342,6 +606,186 @@ function LearningPanel({ onBack }) {
                     border: 1px solid var(--border-primary); border-radius: var(--radius-sm);
                     color: var(--text-primary); margin-bottom: 12px;
                 }
+
+                .assistant-toolbar {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 8px 12px;
+                    border-bottom: 1px solid var(--border-primary);
+                    flex-wrap: wrap;
+                    flex-shrink: 0;
+                    background: var(--bg-primary);
+                }
+                .assistant-feature-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 6px 10px;
+                    border-radius: 6px;
+                    border: 1px solid var(--border-primary);
+                    background: var(--bg-secondary);
+                    color: var(--text-secondary);
+                    font-size: 11px;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    white-space: nowrap;
+                }
+                .assistant-feature-btn:hover:not(:disabled) {
+                    border-color: var(--accent-primary);
+                    color: var(--text-primary);
+                    background: var(--bg-elevated);
+                    transform: translateY(-1px);
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+                }
+                .assistant-tools-toggle {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    padding: 8px;
+                    background: var(--bg-tertiary);
+                    border-bottom: 1px solid var(--border-primary);
+                    color: var(--accent-primary);
+                    font-size: 11px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .assistant-tools-toggle:hover { background: var(--bg-elevated); color: var(--accent-secondary); }
+                .assistant-tools-toggle.active { border-bottom: none; }
+                .assistant-feature-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+                .assistant-feature-btn.loading {
+                    border-color: var(--accent-primary);
+                    animation: featurePulse 1.5s infinite;
+                }
+                .assistant-feature-btn.clear {
+                    background: transparent;
+                    color: var(--text-muted);
+                    margin-left: auto;
+                }
+                .assistant-feature-btn.clear:hover { color: var(--error); border-color: var(--error); }
+                .feature-icon { font-size: 13px; line-height: 1; }
+                .feature-label { font-weight: 500; }
+                @keyframes featurePulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+                .assistant-translate-select {
+                    padding: 3px 6px;
+                    border-radius: 6px;
+                    border: 1px solid var(--border-primary);
+                    background: var(--bg-tertiary);
+                    color: var(--text-secondary);
+                    font-size: 10px;
+                    cursor: pointer;
+                    outline: none;
+                }
+                .assistant-translate-select:hover { border-color: var(--accent-primary); }
+
+                /* Code Block Styling */
+                .assistant-code-block {
+                    margin: 12px 0;
+                    border: 1px solid var(--border-primary);
+                    border-radius: var(--radius-md);
+                    overflow: hidden;
+                    background: #1e1e1e;
+                }
+                .assistant-code-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 4px 12px;
+                    background: var(--bg-tertiary);
+                    border-bottom: 1px solid var(--border-primary);
+                    height: 28px;
+                }
+                .assistant-code-lang {
+                    font-size: 10px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    color: var(--text-muted);
+                    letter-spacing: 0.5px;
+                }
+                .assistant-copy-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    background: transparent;
+                    border: none;
+                    color: var(--text-muted);
+                    cursor: pointer;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-size: 10px;
+                    font-weight: 500;
+                    transition: all 0.2s;
+                }
+                .assistant-copy-btn:hover { background: var(--bg-primary); color: var(--accent-primary); }
+                .assistant-copy-btn.copied { color: #3fb950; }
+                .assistant-code { font-size: 12px; line-height: 1.4; }
+
+                /* Category System */
+                .assistant-categories {
+                    max-height: 200px;
+                    overflow-y: auto;
+                    border-top: 1px solid var(--border-primary);
+                    border-bottom: 1px solid var(--border-primary);
+                    background: var(--bg-secondary);
+                    flex-shrink: 0;
+                }
+                .assistant-category-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    width: 100%;
+                    padding: 8px 16px;
+                    background: transparent;
+                    border: none;
+                    border-bottom: 1px solid var(--border-primary);
+                    color: var(--text-secondary);
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                .assistant-category-header:hover { background: var(--bg-tertiary); }
+                .assistant-category.expanded .assistant-category-header {
+                    background: var(--bg-tertiary);
+                    color: var(--accent-primary);
+                }
+                .assistant-category-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 8px;
+                    padding: 12px;
+                    background: var(--bg-secondary);
+                }
+                .assistant-feature-card {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 4px;
+                    padding: 10px;
+                    border-radius: 8px;
+                    border: 1px solid var(--border-primary);
+                    background: var(--bg-primary);
+                    color: var(--text-primary);
+                    font-size: 12px;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    text-align: left;
+                }
+                .assistant-feature-card:hover:not(:disabled) {
+                    border-color: var(--accent-primary);
+                    background: var(--bg-elevated);
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                }
+                .card-icon { font-size: 18px; margin-bottom: 2px; }
+                .card-label { font-weight: 600; font-size: 12px; }
+                .card-desc { font-size: 10px; color: var(--text-muted); line-height: 1.3; }
+
             `}</style>
         </div>
     );

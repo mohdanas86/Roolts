@@ -168,6 +168,26 @@ def install_extension():
             # Use a thread to avoid blocking the API response
             threading.Thread(target=setup_runtime, args=(runtime_key,), daemon=True).start()
 
+        # 7. Trigger LSP server installation for language extensions
+        LSP_LANG_MAP = {
+            'python': 'python',
+            'java': 'java',
+        }
+        lsp_lang = LSP_LANG_MAP.get(runtime_key)
+        if lsp_lang:
+            def _install_lsp():
+                try:
+                    import importlib
+                    setup = importlib.import_module('scripts.setup_lsp')
+                    if lsp_lang == 'python':
+                        setup.install_python_lsp()
+                    elif lsp_lang == 'java':
+                        setup.install_jdtls()
+                    print(f">>> LSP server installed for {lsp_lang}")
+                except Exception as e:
+                    print(f">>> LSP install failed for {lsp_lang}: {e}")
+            threading.Thread(target=_install_lsp, daemon=True).start()
+
         return jsonify({'success': True, 'data': results})
 
     except Exception as e:
