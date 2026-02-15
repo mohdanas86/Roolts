@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Database
+*.db
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+bin/
+obj/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test
+coverage/
+.pytest_cache/
+
+# Java
+*.class
+*.jar
+.gradle/
+build/
+
+# Miscellaneous
+/anas-solution
+node_modules_trash/
+
+# Compilers
+backend/compiler/
+/compiler/
+node.zip
+
+# User Data & Extensions
+backend/extensions_data/
+backend/user_workspaces/
+extensions/
+
+# Agent/AI Artifacts
+.agent/
+.gemini/
+*.webp
+brain/
+
+# Site builds
+frontend/dist/
+dist/
+build/

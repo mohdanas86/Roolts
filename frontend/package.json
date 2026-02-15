@@ -1,0 +1,47 @@
+{
+  "name": "roolts",
+  "version": "1.0.0",
+  "description": "AI-Powered Code Publisher - Roolts",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@monaco-editor/react": "^4.6.0",
+    "axios": "^1.6.2",
+    "docx": "^9.5.1",
+    "file-saver": "^2.0.5",
+    "html-docx-js": "^0.3.1",
+    "html2canvas": "^1.4.1",
+    "idb": "^8.0.3",
+    "jspdf": "^4.1.0",
+    "mermaid": "^10.6.1",
+    "quill-image-resize-module-react": "^3.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-icons": "^4.12.0",
+    "react-markdown": "^9.0.1",
+    "react-quill": "^2.0.0",
+    "react-syntax-highlighter": "^15.5.0",
+    "react-webcam": "^7.2.0",
+    "simple-peer": "^9.11.1",
+    "socket.io-client": "^4.8.3",
+    "terser": "^5.46.0",
+    "uuid": "^13.0.0",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "esbuild": "0.21.5",
+    "vite": "^5.0.8"
+  },
+  "overrides": {
+    "esbuild": "0.21.5"
+  }
+}

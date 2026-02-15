@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - FLASK_ENV=production
+      - DATABASE_URL=sqlite:///roolts.db
+      # Add your AI API Keys here in a local .env file
+    volumes:
+      - ./backend/instance:/app/instance
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../backend/Dockerfile # Temporary reuse if serving static, or create own
+    # Alternatively, serve via backend or use a simple nginx container
+    image: node:18-slim
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3000"
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://backend:5000
+    depends_on:
+      - backend
+    restart: always

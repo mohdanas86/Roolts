@@ -1,0 +1,11 @@
+Collecting docker
+  Using cached docker-7.1.0-py3-none-any.whl.metadata (3.8 kB)
+Requirement already satisfied: pywin32>=304 in c:\users\anasa\appdata\local\programs\python\python311\lib\site-packages (from docker) (310)
+Requirement already satisfied: requests>=2.26.0 in c:\users\anasa\appdata\local\programs\python\python311\lib\site-packages (from docker) (2.31.0)
+Requirement already satisfied: urllib3>=1.26.0 in c:\users\anasa\appdata\local\programs\python\python311\lib\site-packages (from docker) (2.5.0)
+Requirement already satisfied: charset-normalizer<4,>=2 in c:\users\anasa\appdata\local\programs\python\python311\lib\site-packages (from requests>=2.26.0->docker) (3.4.2)
+Requirement already satisfied: idna<4,>=2.5 in c:\users\anasa\appdata\local\programs\python\python311\lib\site-packages (from requests>=2.26.0->docker) (3.10)
+Requirement already satisfied: certifi>=2017.4.17 in c:\users\anasa\appdata\local\programs\python\python311\lib\site-packages (from requests>=2.26.0->docker) (2025.7.14)
+Using cached docker-7.1.0-py3-none-any.whl (147 kB)
+Installing collected packages: docker
+Successfully installed docker-7.1.0
