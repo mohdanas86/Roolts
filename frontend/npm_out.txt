@@ -1,0 +1,36 @@
+
+> core-js@3.48.0 postinstall
+> node -e "try{require('./postinstall')}catch(e){}"
+
+Thank you for using core-js ( https://github.com/zloirock/core-js ) for polyfilling JavaScript standard library!
+
+The project needs your help! Please consider supporting core-js:
+> https://opencollective.com/core-js 
+> https://patreon.com/zloirock 
+> https://boosty.to/zloirock 
+> bitcoin: bc1qlea7544qtsmj2rayg0lthvza9fau63ux0fstcz 
+
+I highly recommend reading this: https://github.com/zloirock/core-js/blob/master/docs/2023-02-14-so-whats-next.md 
+
+
+> esbuild@0.21.5 postinstall
+> node install.js
+
+
+added 524 packages, changed 1 package, and audited 526 packages in 8s
+
+141 packages are looking for funding
+  run `npm fund` for details
+
+12 vulnerabilities (9 moderate, 3 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.

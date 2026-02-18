@@ -1,0 +1,268 @@
+# Virtual Environment System - Backend Implementation
+
+## Overview
+
+The Virtual Environment System provides isolated Docker-based development environments for users to install packages, run commands, and manage files safely without affecting the production system.
+
+## Features
+
+✅ **Isolated Environments**: Each user gets Docker containers with complete isolation
+✅ **Multi-Language Support**: Node.js, Python, Full-stack, and C/C++ environments
+✅ **Package Management**: Install packages via npm, yarn, pip, apt-get
+✅ **Secure Command Execution**: Command validation and dangerous pattern blocking
+✅ **File Operations**: Full CRUD operations with security validation
+✅ **Resource Limits**: CPU, memory, disk, and process limits enforced
+✅ **Audit Logging**: Complete trail of all operations
+✅ **Auto-Cleanup**: Automatic cleanup of idle and old environments
+
+## Architecture
+
+### Database Models
+- **VirtualEnvironment**: Tracks user environments and Docker containers
+- **EnvironmentSession**: Manages active sessions
+- **EnvironmentLog**: Audit trail for all operations
+
+### Services
+- **docker_manager.py**: Container lifecycle and resource management
+- **security_validator.py**: Command validation and security enforcement
+- **package_manager.py**: Multi-language package installation
+- **file_manager.py**: Secure file system operations
+- **environment_cleanup.py**: Cleanup of idle/old environments
+
+### API Routes (`/api/virtual-env`)
+
+#### Environment Management
+- `POST /environments` - Create new environment
+- `GET /environments` - List user's environments
+- `GET /environments/{id}` - Get environment details
+- `POST /environments/{id}/start` - Start environment
+- `POST /environments/{id}/stop` - Stop environment
+- `DELETE /environments/{id}` - Destroy environment
+
+#### Command Execution
+- `POST /environments/{id}/execute` - Execute command
+- `GET /environments/{id}/logs` - Get execution logs
+
+#### Package Management
+- `POST /environments/{id}/install` - Install packages
+- `GET /environments/{id}/packages` - List installed packages
+
+#### File Operations
+- `GET /environments/{id}/files?path=/workspace` - List directory
+- `GET /environments/{id}/files/{path}` - Read file
+- `PUT /environments/{id}/files/{path}` - Write/update file
+- `DELETE /environments/{id}/files/{path}` - Delete file
+- `POST /environments/{id}/mkdir` - Create directory
+
+## Prerequisites
+
+### Docker Installation
+Docker must be installed and running on the host system:
+
+**Windows:**
+```bash
+# Install Docker Desktop from https://www.docker.com/products/docker-desktop
+```
+
+**Linux:**
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+```
+
+### Python Dependencies
+```bash
+pip install docker>=7.0.0 psutil>=5.9.0
+```
+
+## Installation
+
+1. **Install dependencies:**
+```bash
+cd backend
+pip install -r requirements.txt
+```
+
+2. **Verify Docker is running:**
+```bash
+docker ps
+```
+
+3. **Run database migrations:**
+```bash
+python -c "from app import create_app; app = create_app(); app.app_context().push(); from models import db; db.create_all()"
+```
+
+4. **Start the backend:**
+```bash
+python app.py
+```
+
+## Usage Examples
+
+### Create Environment
+```bash
+curl -X POST http://127.0.0.1:5000/api/virtual-env/environments \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: 1" \
+  -d '{
+    "name": "my-dev-env",
+    "type": "nodejs"
+  }'
+```
+
+### Start Environment
+```bash
+curl -X POST http://127.0.0.1:5000/api/virtual-env/environments/1/start \
+  -H "X-User-ID: 1"
+```
+
+### Execute Command
+```bash
+curl -X POST http://127.0.0.1:5000/api/virtual-env/environments/1/execute \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: 1" \
+  -d '{
+    "command": "node --version"
+  }'
+```
+
+### Install Packages
+```bash
+curl -X POST http://127.0.0.1:5000/api/virtual-env/environments/1/install \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: 1" \
+  -d '{
+    "manager": "npm",
+    "packages": ["express", "lodash"]
+  }'
+```
+
+### Write File
+```bash
+curl -X PUT http://127.0.0.1:5000/api/virtual-env/environments/1/files/app.js \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: 1" \
+  -d '{
+    "content": "console.log(\"Hello World\");"
+  }'
+```
+
+### Read File
+```bash
+curl http://127.0.0.1:5000/api/virtual-env/environments/1/files/app.js \
+  -H "X-User-ID: 1"
+```
+
+## Security Features
+
+### Command Validation
+Dangerous commands are automatically blocked:
+- System modification (`sudo`, `rm -rf /`)
+- Privilege escalation (`setuid`, `/etc/passwd`)
+- Container escape attempts (`/var/run/docker.sock`)
+- Network attacks (`nmap`, malicious downloads`)
+
+### Resource Limits
+Each environment has enforced limits:
+- **CPU**: 1 core
+- **Memory**: 512MB
+- **Disk**: 1GB
+- **Processes**: 50 max
+- **Network**: Disabled by default (enabled only for package installation)
+
+### File Security
+- Path traversal prevention
+- Executable file blocking
+- File size limits (10MB)
+- Workspace-only access
+
+## Maintenance
+
+### Cleanup Idle Environments
+```bash
+cd backend/utils
+python environment_cleanup.py idle 30  # Stop environments idle for 30+ minutes
+```
+
+### Cleanup Old Environments
+```bash
+python environment_cleanup.py old 7  # Destroy environments unused for 7+ days
+```
+
+### Remove Orphaned Containers
+```bash
+python environment_cleanup.py orphans
+```
+
+### View Statistics
+```bash
+python environment_cleanup.py stats
+```
+
+## Configuration
+
+Resource limits can be adjusted in `services/docker_manager.py`:
+
+```python
+DEFAULT_LIMITS = {
+    'cpu_limit': 1.0,  # CPU cores
+    'memory_limit': 512 * 1024 * 1024,  # 512MB
+    'pids_limit': 50,  # Max processes
+    'disk_limit': 1024 * 1024 * 1024  # 1GB
+}
+```
+
+## Troubleshooting
+
+### Docker Connection Failed
+```bash
+# Check if Docker is running
+docker ps
+
+# On Linux, ensure user is in docker group
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### Container Creation Failed
+```bash
+# Check Docker images
+docker images
+
+# Pull required images manually
+docker pull node:18-alpine
+docker pull python:3.11-alpine
+```
+
+### Permission Errors
+```bash
+# On Linux, fix Docker socket permissions
+sudo chmod 666 /var/run/docker.sock
+```
+
+## Integration with Frontend
+
+The frontend should:
+1. Authenticate users and get user ID
+2. Pass `X-User-ID` header with all requests
+3. Handle environment lifecycle (create, start, stop, destroy)
+4. Provide terminal interface for command execution
+5. Implement file browser for file operations
+6. Show package installation UI
+
+## Future Enhancements
+
+- [ ] WebSocket support for real-time terminal
+- [ ] Environment templates and presets
+- [ ] Collaborative environments (multi-user)
+- [ ] Environment snapshots and backups
+- [ ] Custom Docker images per user
+- [ ] GPU support for ML environments
+- [ ] Integration with CI/CD pipelines
+
+## License
+
+Part of the Roolts project.
+

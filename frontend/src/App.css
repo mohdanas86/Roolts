@@ -1,0 +1,22 @@
+/* App.css */
+/* Styles for react-split */
+.split {
+    display: flex;
+    flex-direction: row;
+}
+
+.gutter {
+    background-color: var(--border-primary);
+    background-repeat: no-repeat;
+    background-position: 50%;
+}
+
+.gutter.gutter-horizontal {
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==');
+    cursor: col-resize;
+}
+
+.gutter.gutter-vertical {
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAFAQMAAABoV83XAAAAA1BMVEUAAACnej3aAAAAAXRSTlMAQObYZgAAAApJREFUCNdjAAIALAAJyFhqAAAAAElFTkSuQmCC');
+    cursor: row-resize;
+}

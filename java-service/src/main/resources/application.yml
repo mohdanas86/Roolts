@@ -1,0 +1,30 @@
+# Roolts Java Service Configuration
+server:
+  port: 8080
+
+spring:
+  application:
+    name: roolts-java-service
+
+# GitHub OAuth
+github:
+  client-id: ${GITHUB_CLIENT_ID:}
+  client-secret: ${GITHUB_CLIENT_SECRET:}
+
+# AI/Kiro Configuration
+ai:
+  enabled: true
+  provider: openai
+  api-key: ${OPENAI_API_KEY:}
+
+# CORS Configuration
+cors:
+  allowed-origins:
+    - http://127.0.0.1:3000
+    - http://127.0.0.1:3000
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.roolts: DEBUG

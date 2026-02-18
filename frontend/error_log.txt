@@ -1,0 +1,39 @@
+
+> roolts@1.0.0 dev
+> vite
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m742[22m[2m[0m ms[22m
+
+  [32mΓ₧£[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m3000[22m/[39m
+[2m  [32mΓ₧£[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  Γ₧£[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+Error:   Failed to scan for dependencies from entries:
+  C:/Users/Arvind/Downloads/Roolts-main/Roolts-main/frontend/index.html
+C:/Users/Arvind/Downloads/Roolts-main/Roolts-main/frontend/public/callback/github/index.html
+
+  X [ERROR] The symbol "FiUploadCloud" has already been declared
+
+    src/App.jsx:70:36:
+      70 Γöé ... FiMic, FiMicOff, FiLayout, FiUploadCloud } from 'react-icons/fi';
+         Γò╡                                ~~~~~~~~~~~~~
+
+  The symbol "FiUploadCloud" was originally declared here:
+
+    src/App.jsx:16:4:
+      16 Γöé     FiUploadCloud,
+         Γò╡     ~~~~~~~~~~~~~
+
+
+    at failureErrorWithLog (C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:1472:15)
+    at C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:945:25
+    at runOnEndCallbacks (C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:1315:45)
+    at buildResponseToResult (C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:943:7)
+    at C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:955:9
+    at new Promise (<anonymous>)
+    at requestCallbacks.on-end (C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:954:54)
+    at handleRequest (C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:647:17)
+    at handleIncomingPacket (C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:672:7)
+    at Socket.readFromStdout (C:\Users\Arvind\Downloads\Roolts-main\Roolts-main\frontend\node_modules\esbuild\lib\main.js:600:7)
+

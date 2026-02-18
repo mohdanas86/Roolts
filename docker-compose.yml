@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  roolts-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - FLASK_ENV=production
+      - DATABASE_URL=sqlite:///roolts.db
+      - JAVA_SERVICE_URL=http://127.0.0.1:8080
+      # - HF_TOKEN=your_token
+      # - SECRET_KEY=your_secret
+    volumes:
+      - ./backend/instance:/app/instance
+    restart: always
