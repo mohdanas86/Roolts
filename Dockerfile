@@ -53,6 +53,7 @@ ENV JAVA_SERVICE_URL=http://127.0.0.1:8080
 
 # Setup start script
 COPY start.sh /app/start.sh
+RUN sed -i 's/\r$//' /app/start.sh
 RUN chmod +x /app/start.sh
 
 # Expose port
