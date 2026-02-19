@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: roolts-app
+    env: docker
+    plan: free
+    repo: https://github.com/ArvindRamakrishnan78907/Roolts
+    branch: main
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: FLASK_ENV
+        value: production
+      - key: VITE_JAVA_API_URL
+        value: https://roolts-app.onrender.com
