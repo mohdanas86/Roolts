@@ -408,8 +408,7 @@ export const useSettingsStore = create(
                 socratesMode: false
             },
             experimental: {
-                leetcodeMode: false,
-                vscodeApp: true
+                leetcodeMode: false
             },
             scribblePenSize: 3,
             scribbleEraserSize: 15,
@@ -469,8 +468,7 @@ export const useSettingsStore = create(
                     socratesMode: false
                 },
                 experimental: {
-                    leetcodeMode: false,
-                    vscodeApp: true
+                    leetcodeMode: false
                 },
                 scribblePenSize: 3,
                 scribbleEraserSize: 15,

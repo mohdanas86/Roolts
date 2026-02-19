@@ -358,35 +358,11 @@ function SettingsModal() {
                                         </div>
                                     </div>
 
-                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={experimental?.githubPanel}
-                                            onChange={() => toggleExperimental('githubPanel')}
-                                            style={{ marginRight: '8px' }}
-                                        />
-                                        <label>GitHub Integration (Experimental)</label>
-                                    </div>
 
-                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={experimental?.socialPanel}
-                                            onChange={() => toggleExperimental('socialPanel')}
-                                            style={{ marginRight: '8px' }}
-                                        />
-                                        <label>Social Sharing Features (LinkedIn/Twitter)</label>
-                                    </div>
 
-                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={experimental?.vscodeApp}
-                                            onChange={() => toggleExperimental('vscodeApp')}
-                                            style={{ marginRight: '8px' }}
-                                        />
-                                        <label>VS Code Marketplace Support</label>
-                                    </div>
+
+
+
 
 
                                 </div>
