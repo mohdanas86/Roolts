@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FiPlus, FiX, FiTrash2, FiEdit3, FiFilePlus, FiFolder, FiFolderPlus, FiUpload, FiDownload, FiChevronRight, FiChevronDown, FiAlertCircle } from 'react-icons/fi';
+import { FiPlus, FiX, FiTrash2, FiEdit3, FiFilePlus, FiFolder, FiFolderPlus, FiUpload, FiDownload, FiChevronRight, FiChevronDown, FiAlertCircle, FiChevronsLeft } from 'react-icons/fi';
 import { useFileStore, useUIStore } from '../store';
 import { getFileIcon } from '../services/iconHelper.jsx';
 import {
@@ -16,7 +16,7 @@ import {
 import FileItem from './FileItem';
 function FileExplorer() {
     const { files, activeFileId, openFile, deleteFile, renameFile, addFile, openFiles, closeFile, closeFiles, deleteFiles } = useFileStore();
-    const { openModal, addNotification } = useUIStore();
+    const { openModal, addNotification, toggleSidebar } = useUIStore();
     const [renamingId, setRenamingId] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const fileInputRef = useRef(null);
@@ -194,11 +194,14 @@ function FileExplorer() {
             />
 
             <div className="file-explorer__header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--border-primary)' }}>
-                <h3 style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>Files</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>Files</h3>
+                </div>
                 <div style={{ display: 'flex', gap: '4px' }}>
                     <button className="btn btn--icon btn--ghost" onClick={() => openModal('newFile')} title="New File"><FiFilePlus size={16} /></button>
                     <button className="btn btn--icon btn--ghost" onClick={() => folderInputRef.current.click()} title="Upload Folder"><FiFolderPlus size={16} /></button>
                     <button className="btn btn--icon btn--ghost" onClick={() => fileInputRef.current.click()} title="Upload Files"><FiUpload size={16} /></button>
+                    <button className="btn btn--icon btn--ghost" onClick={toggleSidebar} title="Collapse Sidebar"><FiChevronsLeft size={16} /></button>
                 </div>
             </div>
 

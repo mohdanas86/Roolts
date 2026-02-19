@@ -3,12 +3,13 @@ import axios from 'axios';
 import {
     FiSettings, FiX, FiPaperclip, FiSend, FiZap, FiCopy, FiCheck, FiRotateCcw, FiPlay, FiGrid, FiChevronDown, FiChevronUp, FiSave, FiTrash2, FiSquare
 } from 'react-icons/fi';
-import { useFileStore, useUIStore, useExecutionStore } from '../store';
+import { useFileStore, useUIStore, useExecutionStore, useSettingsStore, useLearningStore } from '../store';
 import { aiService } from '../services/api';
 import api from '../services/api'; // Direct access to axios instance
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkGfm from 'remark-gfm';
 
 const CopyButton = ({ content }) => {
     const [copied, setCopied] = useState(false);
@@ -44,10 +45,7 @@ function LearningPanel({ onBack }) {
     // Inject into local scope too for maximum visibility across different renderers
     const copyToClipboard = handleGlobalCopy;
     const [query, setQuery] = useState('');
-    const [chatHistory, setChatHistory] = useState(() => {
-        const saved = localStorage.getItem('roolts_ai_chat_history');
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [chatHistory, setChatHistory] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingFeature, setLoadingFeature] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
@@ -58,10 +56,12 @@ function LearningPanel({ onBack }) {
     const [expandedCategory, setExpandedCategory] = useState(null);
     const [showAllTools, setShowAllTools] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const { features, toggleFeature } = useSettingsStore();
 
     const { files, activeFileId } = useFileStore();
     const { addNotification, toggleRightPanel, setRightPanelTab } = useUIStore();
     const { output: executionOutput } = useExecutionStore();
+    const { pendingQuery, setPendingQuery } = useLearningStore();
     const activeFile = files.find(f => f.id === activeFileId);
     const chatEndRef = useRef(null);
     const abortControllerRef = useRef(null);
@@ -97,8 +97,16 @@ function LearningPanel({ onBack }) {
     useEffect(() => {
         localStorage.setItem('roolts_ai_provider', provider);
         localStorage.setItem('roolts_ai_key', apiKey);
-        localStorage.setItem('roolts_ai_chat_history', JSON.stringify(chatHistory));
-    }, [provider, apiKey, chatHistory]);
+        // localStorage.setItem('roolts_ai_chat_history', JSON.stringify(chatHistory)); // History Disabled
+    }, [provider, apiKey]);
+
+    // Handle pending queries from other components (like Context Menu)
+    useEffect(() => {
+        if (pendingQuery) {
+            handleChat(null, pendingQuery);
+            setPendingQuery(null);
+        }
+    }, [pendingQuery]);
 
     const handleChat = async (e, forcedQuery = null) => {
         if (e) e.preventDefault();
@@ -118,11 +126,16 @@ function LearningPanel({ onBack }) {
         if (abortControllerRef.current) abortControllerRef.current.abort();
         abortControllerRef.current = new AbortController();
 
+        let contextQuery = finalQuery;
+        if (features.socratesMode) {
+            contextQuery = `[SYSTEM: SOCRATES MODE ENABLED. You are Socrates. Do NOT give the user the answer or code directly. Instead, ask a guiding question to help them discover the answer themselves. Be helpful but Socratic.]\n\nUser Query: ${finalQuery}`;
+        }
+
         try {
             const response = await aiService.chat(
                 activeFile.content,
                 activeFile.language || 'plaintext',
-                finalQuery,
+                contextQuery,
                 chatHistory,
                 provider !== 'roolts' ? apiKey : null,
                 provider !== 'roolts' ? provider : null,
@@ -341,6 +354,19 @@ function LearningPanel({ onBack }) {
             {showSettings && (
                 <div className="assistant-popover">
                     <div className="assistant-popover-content">
+                        <div className="form-check" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center' }}>
+                            <input
+                                type="checkbox"
+                                checked={features.socratesMode}
+                                onChange={() => toggleFeature('socratesMode')}
+                                style={{ marginRight: '8px' }}
+                            />
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <label style={{ cursor: 'pointer', fontWeight: 600 }}>Socrates Mode</label>
+                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>AI will ask questions instead of giving answers.</span>
+                            </div>
+                        </div>
+
                         <label>Provider</label>
                         <select value={provider} onChange={(e) => setProvider(e.target.value)}>
                             <option value="roolts">Roolts</option>
@@ -473,11 +499,12 @@ function LearningPanel({ onBack }) {
                                 <details className="assistant-reasoning">
                                     <summary>Thinking Process</summary>
                                     <div className="reasoning-content">
-                                        <ReactMarkdown>{msg.reasoning}</ReactMarkdown>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.reasoning}</ReactMarkdown>
                                     </div>
                                 </details>
                             )}
                             <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
                                 components={{
                                     code({ node, className, children, ...props }) {
                                         const match = /language-(\w+)/.exec(className || '');
@@ -503,6 +530,15 @@ function LearningPanel({ onBack }) {
                                             </div>
                                         ) : (
                                             <code className="assistant-inline-code" {...props}>{children}</code>
+                                        );
+                                    },
+                                    table({ children, ...props }) {
+                                        return (
+                                            <div style={{ overflowX: 'auto', margin: '24px 0', borderRadius: '12px', border: '1px solid var(--border-primary)' }}>
+                                                <table {...props} style={{ margin: 0, border: 'none', width: '100%' }}>
+                                                    {children}
+                                                </table>
+                                            </div>
                                         );
                                     }
                                 }}
@@ -621,10 +657,10 @@ function LearningPanel({ onBack }) {
 
                 .assistant-bubble {
                     max-width: 90%;
-                    padding: 14px 18px;
+                    padding: 18px 24px; /* Spacious Padding */
                     border-radius: 18px;
                     font-size: 15px;
-                    line-height: 1.7;
+                    line-height: 1.85; /* Spacious Line Height */
                     position: relative;
                     box-shadow: 0 4px 15px rgba(0,0,0,0.06);
                     transition: all 0.3s ease;
@@ -665,8 +701,8 @@ function LearningPanel({ onBack }) {
                 .assistant-bubble.ai p:last-child { margin-bottom: 0; }
                 
                 .assistant-bubble.ai ul, .assistant-bubble.ai ol { margin-bottom: 0.8em; padding-left: 20px; }
-                .assistant-bubble.ai li { margin-bottom: 0.4em; position: relative; }
-                .assistant-bubble.ai li::marker { color: var(--accent-primary); }
+                .assistant-bubble.ai li { margin-bottom: 1.5em; position: relative; padding-left: 6px; }
+                .assistant-bubble.ai li::marker { color: var(--accent-primary); padding-right: 8px; }
                 .assistant-bubble.ai strong { color: var(--accent-primary); font-weight: 700; }
                 .assistant-bubble.ai blockquote {
                     border-left: 4px solid var(--accent-primary);
@@ -679,16 +715,28 @@ function LearningPanel({ onBack }) {
                 .assistant-bubble.ai a:hover { border-bottom-style: solid; opacity: 0.8; }
                 
                 /* Tables */
+                /* Tables */
                 .assistant-bubble.ai table {
-                    width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;
-                    border-radius: 8px; overflow: hidden; border: 1px solid var(--border-primary);
+                    width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px;
+                    background: rgba(var(--bg-tertiary-rgb), 0.3);
                 }
                 .assistant-bubble.ai th, .assistant-bubble.ai td {
-                    padding: 10px 14px; border-bottom: 1px solid var(--border-primary); text-align: left;
+                    padding: 14px 18px; border-bottom: 1px solid var(--border-primary); text-align: left;
+                    line-height: 1.6;
                 }
-                .assistant-bubble.ai th { background: var(--bg-tertiary); font-weight: 600; color: var(--text-secondary); }
+                .assistant-bubble.ai th { 
+                    background: rgba(var(--bg-tertiary-rgb), 0.8); 
+                    font-weight: 700; color: var(--text-primary); 
+                    text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px;
+                }
                 .assistant-bubble.ai tr:last-child td { border-bottom: none; }
-                .assistant-bubble.ai tr:hover td { background: var(--bg-tertiary); }
+                .assistant-bubble.ai tr:hover td { background: rgba(var(--bg-tertiary-rgb), 0.5); }
+                .assistant-bubble.ai td p, .assistant-bubble.ai th p {
+                    margin-bottom: 12px;
+                }
+                .assistant-bubble.ai td p:last-child, .assistant-bubble.ai th p:last-child {
+                    margin-bottom: 0;
+                }
  
                 /* Footer */
                 .assistant-footer {
@@ -780,23 +828,27 @@ function LearningPanel({ onBack }) {
                 }
                 @keyframes slideDown { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
-                /* VS Code Style Code Blocks */
+                /* VS Code Style Code Blocks -> Mini Terminal */
                 .assistant-code-block {
                     margin: 20px 0;
                     border: 1px solid #333;
-                    border-radius: 8px;
+                    border-radius: 6px;
                     overflow: hidden;
-                    background: #1e1e1e; /* VS Code Dark */
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    background: #0d0d0d; /* Dark Terminal Background */
+                    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+                    font-family: 'Fira Code', monospace;
                 }
                 .assistant-code-header {
                     display: flex; justify-content: space-between; align-items: center;
-                    padding: 6px 12px; background: #252526; border-bottom: 1px solid #333;
-                    height: 32px;
+                    padding: 8px 12px; background: #1f1f1f; border-bottom: 1px solid #333;
+                    height: 36px;
                 }
                 .assistant-code-lang {
-                    font-size: 11px; font-weight: 600; text-transform: uppercase; color: #cccccc; letter-spacing: 0.5px;
+                    font-size: 11px; font-weight: 700; text-transform: uppercase; color: #888; letter-spacing: 1px;
                     display: flex; align-items: center; gap: 8px;
+                }
+                .assistant-code-lang::before {
+                    content: none;
                 }
 
                 .assistant-copy-btn {

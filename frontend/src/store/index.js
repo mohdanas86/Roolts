@@ -281,6 +281,7 @@ export const useLearningStore = create((set) => ({
     isReviewing: false,
     activeTab: 'explain',
     chatMessages: [],
+    pendingQuery: null,
 
     setExplanation: (explanation) => set({ explanation }),
     setDiagram: (diagram) => set({ diagram }),
@@ -293,6 +294,7 @@ export const useLearningStore = create((set) => ({
         chatMessages: [...state.chatMessages, { ...message, id: Date.now() }]
     })),
     clearChat: () => set({ chatMessages: [] }),
+    setPendingQuery: (query) => set({ pendingQuery: query }),
 
     reset: () => set({
         explanation: null,
@@ -395,15 +397,17 @@ export const useSettingsStore = create(
             },
             features: {
                 minimap: true,
-                lineNumbers: 'on', // on, off, relative, interval
+                lineNumbers: 'on',
                 autoSave: false,
                 livePreview: true,
                 vimMode: false,
-                validation: false
-            },
-            experimental: {
+                validation: false,
                 scribble: false,
                 customBackground: false,
+                superSimpleMode: false,
+                socratesMode: false
+            },
+            experimental: {
                 leetcodeMode: false,
                 vscodeApp: true
             },
@@ -458,11 +462,13 @@ export const useSettingsStore = create(
                     autoSave: false,
                     livePreview: true,
                     vimMode: false,
-                    validation: false // Default to false to hide red lines
-                },
-                experimental: {
+                    validation: false, // Default to false to hide red lines
                     scribble: false,
                     customBackground: false,
+                    superSimpleMode: false,
+                    socratesMode: false
+                },
+                experimental: {
                     leetcodeMode: false,
                     vscodeApp: true
                 },

@@ -195,11 +195,11 @@ function CodeChampApp({ onClose }) {
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <button
-                        className="btn btn--primary btn--icon"
+                        className="btn btn--primary"
                         onClick={runCode}
                         disabled={isRunning || !activeFile}
                         title="Run Code"
-                        style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        style={{ borderRadius: '8px', fontSize: '14px', fontWeight: '700', letterSpacing: '0.5px' }}
                     >
                         <FiPlay size={16} /> {isRunning ? 'Running' : 'RUN CODE'}
                     </button>

@@ -8,6 +8,8 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
     const [pyodide, setPyodide] = useState(null);
     const [history, setHistory] = useState([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
+    const [retryCount, setRetryCount] = useState(0);
+    const MAX_RETRIES = 3;
 
     const outputEndRef = useRef(null);
     const inputRef = useRef(null);
@@ -43,13 +45,7 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
             }
 
             try {
-                // Safety timeout
-                setTimeout(() => {
-                    if (isMounted && isLoading && !window.rooltsPyodide) {
-                        setOutput(prev => [...prev, { type: 'error', content: 'Initialization timed out. Please try refreshing or check your connection.' }]);
-                        setIsLoading(false);
-                    }
-                }, 15000);
+                setIsLoading(true);
 
                 // Determine if script needs loading
                 let scriptLoaded = !!window.loadPyodide;
@@ -80,14 +76,10 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
                     const py = await window.loadPyodide({
                         indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/",
                         stdout: (text) => {
-                            if (window.rooltsPyodideCallbacks.stdout) {
-                                window.rooltsPyodideCallbacks.stdout(text);
-                            }
+                            if (window.rooltsPyodideCallbacks.stdout) window.rooltsPyodideCallbacks.stdout(text);
                         },
                         stderr: (text) => {
-                            if (window.rooltsPyodideCallbacks.stderr) {
-                                window.rooltsPyodideCallbacks.stderr(text);
-                            }
+                            if (window.rooltsPyodideCallbacks.stderr) window.rooltsPyodideCallbacks.stderr(text);
                         }
                     });
 
@@ -96,9 +88,10 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
                     if (isMounted) {
                         setPyodide(py);
                         setIsLoading(false);
-                        setOutput(prev => [...prev,
-                        { type: 'system', content: `Python ${py.runPython('import sys; sys.version').split('[')[0]}` },
-                        { type: 'system', content: 'Type "help", "copyright", "credits" or "license" for more information.' }
+                        setOutput(prev => [
+                            ...prev,
+                            { type: 'system', content: `Python ${py.runPython('import sys; sys.version').split('[')[0]}` },
+                            { type: 'system', content: 'Type "help", "copyright", "credits" or "license" for more information.' }
                         ]);
                     }
                 } else {
@@ -110,8 +103,18 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
 
             } catch (err) {
                 if (isMounted) {
-                    setOutput(prev => [...prev, { type: 'error', content: `Failed to load Python: ${err.message}` }]);
-                    setIsLoading(false);
+                    console.error("Pyodide Load Error:", err);
+                    if (retryCount < MAX_RETRIES) {
+                        setOutput(prev => [...prev, { type: 'error', content: `Load failed. Retrying (${retryCount + 1}/${MAX_RETRIES})...` }]);
+                        setTimeout(() => {
+                            if (isMounted) {
+                                setRetryCount(prev => prev + 1);
+                            }
+                        }, 2000);
+                    } else {
+                        setOutput(prev => [...prev, { type: 'error', content: `Failed to load Python: ${err.message}. Please refresh.` }]);
+                        setIsLoading(false);
+                    }
                 }
             }
         };
@@ -121,7 +124,7 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
         return () => {
             isMounted = false;
         };
-    }, []);
+    }, [retryCount]); // Re-run on retryCount change
 
     // Auto-scroll
     useEffect(() => {
@@ -200,8 +203,9 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
             color: '#d4d4d4',
             borderRadius: isWindowed ? '0' : '16px', // Rounded if embedded
             overflow: 'hidden',
-            fontFamily: 'Consolas, "Courier New", monospace',
-            fontSize: '14px'
+            fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+            fontSize: '14px',
+            lineHeight: '1.6'
         }}>
             {/* Header */}
             <div style={{
@@ -227,6 +231,19 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
                     </button>
                     {!isWindowed && (
                         <>
+                            <button onClick={() => {
+                                setOutput([]);
+                                setRetryCount(0);
+                                setIsLoading(true);
+                                window.rooltsPyodide = null; // Force reload
+                                // Ideally we should reload the component or re-trigger the effect, 
+                                // but setting retryCount to 0 (or a new state) will trigger the effect again.
+                                // However, we need to ensure global state is cleared or handled.
+                                // simpler: 
+                                setRetryCount(c => c + 1);
+                            }} className="btn btn--ghost btn--icon" title="Reset Environment">
+                                <FiRefreshCw size={14} color="#ccc" />
+                            </button>
                             <button onClick={onPopOut} className="btn btn--ghost btn--icon" title="Pop Out">
                                 <FiExternalLink size={14} color="#ccc" />
                             </button>

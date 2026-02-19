@@ -625,7 +625,7 @@ class AISelector:
             'claude': 'Anthropic Claude: Specialized in nuanced text analysis',
             'gemini': 'Google Gemini: Optimized for speed and general knowledge',
             'qwen': 'Alibaba Qwen: Expert at multilingual content',
-            'pollinations': 'Pollinations.ai: Free, no-key fallback model'
+            'pollinations': 'Standard AI: Free fallback model'
         }
         
         is_primary = selected in ['huggingface', 'deepseek']
@@ -678,7 +678,7 @@ class PollinationsProvider(AIProvider):
                 return {
                     'response': response.text,
                     'model': 'pollinations',
-                    'provider': 'Pollinations.ai (Free)'
+                    'provider': 'Standard AI'
                 }
             
             # Fallback to GET if POST fails (only for short prompts)
@@ -688,7 +688,7 @@ class PollinationsProvider(AIProvider):
                      return {
                         'response': response.text,
                         'model': 'pollinations',
-                        'provider': 'Pollinations.ai (Free)'
+                        'provider': 'Standard AI'
                     }
             
             print(f"Pollinations Error: {response.status_code} - {response.text}")
@@ -709,9 +709,9 @@ class MockProvider(AIProvider):
     def generate(self, prompt: str, system_prompt: str = None, messages: list = None) -> Dict[str, Any]:
         content = (
             "### ⚠️ AI Connection Failed\n\n"
-            "The AI assistant is unable to connect to **Pollinations.ai** (Free Provider).\n\n"
+            "The AI assistant is unable to connect to **Standard AI** (Free Provider).\n\n"
             "**Diagnostics:**\n"
-            "- Pollinations.ai (Free): Failed to respond.\n"
+            "- Standard AI: Failed to respond.\n"
             "- API Keys: None configured (using fallback).\n\n"
             "**How to enable AI:**\n\n"
             "**Option 1 — Retry:**\n"

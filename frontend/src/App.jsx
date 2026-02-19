@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import {
     FiPlus, FiUploadCloud, FiSave, FiSettings, FiChevronLeft, FiChevronRight,
-    FiPlay, FiTerminal, FiCode, FiX, FiCheckCircle, FiAlertCircle
+    FiPlay, FiTerminal, FiCode, FiX, FiCheckCircle, FiAlertCircle, FiSidebar, FiFolder
 } from 'react-icons/fi';
 import {
     useUIStore, useFileStore, useExecutionStore,
@@ -20,15 +20,13 @@ import RightPanel from './components/RightPanel';
 import StatusBar from './components/StatusBar';
 import Notifications from './components/Notifications';
 import SyncManager from './components/SyncManager';
-import ActivityBar from './components/ActivityBar';
-import GitPanel from './components/GitPanel';
+import RemoteControlOverlay from './components/RemoteControlOverlay';
 
 // Lazy loaded modals
 const SettingsModal = lazy(() => import('./components/SettingsModal.jsx'));
 const NewFileModal = lazy(() => import('./components/NewFileModal.jsx'));
 
 // Utility Components
-import RemoteControlOverlay from './components/RemoteControlOverlay';
 
 // Logic helpers
 const detectInputRequirement = (code, language) => {
@@ -162,7 +160,7 @@ function App() {
         addToHistory, setShowOutput, inputRequestOpen, setInputRequestOpen, setInput
     } = useExecutionStore();
 
-    const { theme, backgroundImage, backgroundOpacity, uiFontSize, uiFontFamily, experimental } = useSettingsStore();
+    const { theme, backgroundImage, backgroundOpacity, uiFontSize, uiFontFamily, features, experimental } = useSettingsStore();
 
     const [terminalOpen, setTerminalOpen] = useState(false);
     const [isController, setIsController] = useState(false);
@@ -176,19 +174,7 @@ function App() {
 
     const activeFile = files.find(f => f.id === activeFileId);
 
-    // Sidebar View State
     const [activeView, setActiveView] = useState('explorer');
-
-    const handleActivityClick = (viewId) => {
-        if (activeView === viewId) {
-            // Toggle sidebar if clicking active view
-            toggleSidebar();
-        } else {
-            // Switch view and ensure sidebar is open
-            setActiveView(viewId);
-            if (!sidebarOpen) toggleSidebar();
-        }
-    };
 
     // Initial setup and OAuth callbacks
     useEffect(() => {
@@ -204,8 +190,8 @@ function App() {
 
         if (uiFontFamily) document.documentElement.style.setProperty('--font-sans', uiFontFamily);
 
-        document.documentElement.style.setProperty('--bg-opacity', (backgroundOpacity && experimental?.customBackground) ? backgroundOpacity : 0.85);
-    }, [theme, uiFontSize, uiFontFamily, backgroundOpacity, experimental]);
+        document.documentElement.style.setProperty('--bg-opacity', (backgroundOpacity && features?.customBackground) ? backgroundOpacity : 0.85);
+    }, [theme, uiFontSize, uiFontFamily, backgroundOpacity, features]);
 
     // Remote Control Listeners
     useEffect(() => {
@@ -324,7 +310,10 @@ function App() {
     return (
         <div className="app">
             <header className="header">
-                <div className="header__brand"><div className="header__logo">R</div><h1 className="header__title">Roolts</h1></div>
+                <div className="header__brand">
+                    <div className="header__logo">R</div>
+                    <h1 className="header__title">Roolts</h1>
+                </div>
                 <div className="header__actions">
                     <button className="btn btn--success" onClick={handleRunCode} disabled={isExecuting}>
                         {isExecuting ? <span className="spinner" /> : <FiPlay />} Run
@@ -336,26 +325,26 @@ function App() {
             </header>
 
             <main className={`main ${editorMinimized ? 'main--editor-minimized' : ''}`} ref={mainRef}>
-                <aside className="sidebar-container">
-                    <ActivityBar activeView={activeView} onActivityClick={handleActivityClick} onSettingsClick={() => openModal('settings')} />
-                    {sidebarOpen && (
+                {sidebarOpen ? (
+                    <aside className="sidebar-container">
                         <div className="sidebar-panel">
-                            <div className="sidebar__header">
-                                <span className="sidebar__title">{activeView.toUpperCase()}</span>
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                    <button className="btn btn--ghost btn--icon" onClick={toggleSidebar}><FiChevronLeft /></button>
-                                </div>
-                            </div>
                             <div className="sidebar-content">
-                                {activeView === 'explorer' && <FileExplorer />}
-                                {activeView === 'git' && <GitPanel />}
+                                <FileExplorer />
                             </div>
-                            {/* Terminal Toggle moved to Status Bar or kept in panel? Keeping relevant to panel for now if needed, but VS Code usually has terminal at bottom globally. 
-                                The old sidebar had a terminal toggle. Let's keep it in the sidebar footer for now if user wants it there, or rely on bottom panel toggle.
-                            */}
                         </div>
-                    )}
-                </aside>
+                    </aside>
+                ) : (
+                    <div
+                        className="sidebar-collapsed"
+                        onClick={toggleSidebar}
+                        title="Show Explorer"
+                    >
+                        <div className="sidebar-collapsed-content">
+                            <FiFolder size={18} />
+                            <span className="sidebar-vertical-text">Explorer</span>
+                        </div>
+                    </div>
+                )}
 
                 <div className="editor-terminal-wrapper">
                     <div className={`editor-container ${terminalOpen ? 'editor-container--with-terminal' : ''}`}>

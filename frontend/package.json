@@ -28,6 +28,7 @@
     "react-quill": "^2.0.0",
     "react-syntax-highlighter": "^15.5.0",
     "react-webcam": "^7.2.0",
+    "remark-gfm": "^4.0.1",
     "simple-peer": "^9.11.1",
     "socket.io-client": "^4.8.3",
     "terser": "^5.46.0",

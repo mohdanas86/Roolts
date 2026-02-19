@@ -242,70 +242,18 @@ function SettingsModal() {
                                         />
                                         <label>Live Web Preview (Auto-open)</label>
                                     </div>
-                                </div>
-                            )}
-
-                            {activeTab === 'experimental' && (
-                                <div className="settings-section" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                    <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-primary)', paddingBottom: '0.5rem' }}>Experimental Features</h3>
-                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                                        These features are in development and may be unstable.
-                                    </p>
 
                                     <div className="form-check" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center' }}>
                                         <input
                                             type="checkbox"
-                                            checked={experimental?.customBackground}
-                                            onChange={() => toggleExperimental('customBackground')}
+                                            checked={features.customBackground}
+                                            onChange={() => toggleFeature('customBackground')}
                                             style={{ marginRight: '8px' }}
                                         />
-                                        <label>Custom Background Image (Experimental)</label>
+                                        <label>Custom Background Image</label>
                                     </div>
 
-                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={experimental?.leetcodeMode}
-                                            onChange={() => toggleExperimental('leetcodeMode')}
-                                            style={{ marginRight: '8px' }}
-                                        />
-                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <label style={{ cursor: 'pointer' }}>LeetCode Mode</label>
-                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Executes Solution classes without a main block (Python).</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={experimental?.githubPanel}
-                                            onChange={() => toggleExperimental('githubPanel')}
-                                            style={{ marginRight: '8px' }}
-                                        />
-                                        <label>GitHub Integration (Experimental)</label>
-                                    </div>
-
-                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={experimental?.socialPanel}
-                                            onChange={() => toggleExperimental('socialPanel')}
-                                            style={{ marginRight: '8px' }}
-                                        />
-                                        <label>Social Sharing Features (LinkedIn/Twitter)</label>
-                                    </div>
-
-                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={experimental?.vscodeApp}
-                                            onChange={() => toggleExperimental('vscodeApp')}
-                                            style={{ marginRight: '8px' }}
-                                        />
-                                        <label>VS Code Marketplace Support</label>
-                                    </div>
-
-                                    {experimental?.customBackground && (
+                                    {features.customBackground && (
                                         <div style={{ padding: '1rem', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-primary)', marginBottom: '1.5rem' }}>
                                             <div className="form-group" style={{ marginBottom: '1.5rem' }}>
                                                 <label>Background Image</label>
@@ -362,12 +310,85 @@ function SettingsModal() {
                                     <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
                                         <input
                                             type="checkbox"
-                                            checked={experimental?.scribble}
-                                            onChange={() => toggleExperimental('scribble')}
+                                            checked={features.scribble}
+                                            onChange={() => toggleFeature('scribble')}
                                             style={{ marginRight: '8px' }}
                                         />
                                         <label>Scribble Feature (Canvas Overlay)</label>
                                     </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'experimental' && (
+                                <div className="settings-section" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                    <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-primary)', paddingBottom: '0.5rem' }}>Experimental Features</h3>
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                                        These features are in development and may be unstable.
+                                    </p>
+
+                                    <div className="form-check" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>More experimental features coming soon.</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="form-check" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', borderTop: '1px solid var(--border-primary)', paddingTop: '1rem' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={features.superSimpleMode}
+                                            onChange={() => toggleFeature('superSimpleMode')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <label style={{ cursor: 'pointer' }}>Super Simple Mode</label>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Hides all distractions (Sidebar, Activity Bar, etc.)</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={experimental?.leetcodeMode}
+                                            onChange={() => toggleExperimental('leetcodeMode')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <label style={{ cursor: 'pointer' }}>LeetCode Mode</label>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Executes Solution classes without a main block (Python).</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={experimental?.githubPanel}
+                                            onChange={() => toggleExperimental('githubPanel')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <label>GitHub Integration (Experimental)</label>
+                                    </div>
+
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={experimental?.socialPanel}
+                                            onChange={() => toggleExperimental('socialPanel')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <label>Social Sharing Features (LinkedIn/Twitter)</label>
+                                    </div>
+
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={experimental?.vscodeApp}
+                                            onChange={() => toggleExperimental('vscodeApp')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <label>VS Code Marketplace Support</label>
+                                    </div>
+
+
                                 </div>
                             )}
 

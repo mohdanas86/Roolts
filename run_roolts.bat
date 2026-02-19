@@ -4,7 +4,7 @@ echo   Starting Roolts App - Build. Learn. Share.
 echo ==================================================
 
 echo 1. Starting Backend Server...
-start "Roolts Backend" cmd /k "cd backend && call venv\Scripts\activate && python app.py"
+start "Roolts Backend" cmd /k "cd backend && set PYTHONHOME= && set PYTHONPATH= && call venv\Scripts\activate && python app.py"
 
 echo 2. Starting Frontend Server...
 :wait_node

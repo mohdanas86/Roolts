@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { FiCode, FiPlus, FiFolder, FiX, FiAlertTriangle } from 'react-icons/fi';
-import { useFileStore, useExecutionStore, useSettingsStore } from '../store';
+import { useFileStore, useExecutionStore, useSettingsStore, useUIStore, useLearningStore } from '../store';
 import { errorParser } from '../services/errorParser';
 import { realtimeValidator } from '../services/realtimeValidator';
 import { extensionLoader } from '../services/extensionLoader';
@@ -307,6 +307,39 @@ function CodeEditor({ isScribbleMode, scribbleTool = 'pen', scribbleColor = '#ff
             }
         });
 
+        // ── NEW: Explain with AI Context Menu ──
+        editor.addAction({
+            id: 'explain-with-ai',
+            label: 'Explain with AI',
+            contextMenuGroupId: 'navigation',
+            contextMenuOrder: 1.0,
+            run: (ed) => {
+                const selection = ed.getSelection();
+                const text = ed.getModel().getValueInRange(selection);
+                if (text && text.trim().length > 0) {
+                    // Open AI Panel
+                    useUIStore.getState().setRightPanelTab('learn');
+                    // Send Query
+                    useLearningStore.getState().setPendingQuery(`Explain this code context:\n\n\`\`\`${activeFileIdRef.current ? useFileStore.getState().files.find(f => f.id === activeFileIdRef.current)?.language : ''}\n${text}\n\`\`\`\n\nPlease explain what this code does.`);
+                    // Ensure panel is open
+                    if (!useUIStore.getState().rightPanelOpen) {
+                        useUIStore.getState().toggleRightPanel();
+                    }
+                } else {
+                    // Try to explain current line if no selection
+                    const position = ed.getPosition();
+                    const lineContent = ed.getModel().getLineContent(position.lineNumber);
+                    if (lineContent && lineContent.trim().length > 0) {
+                        useUIStore.getState().setRightPanelTab('learn');
+                        useLearningStore.getState().setPendingQuery(`Explain this line of code:\n\n\`\`\`\n${lineContent.trim()}\n\`\`\``);
+                        if (!useUIStore.getState().rightPanelOpen) {
+                            useUIStore.getState().toggleRightPanel();
+                        }
+                    }
+                }
+            }
+        });
+
         editor.addAction({
             id: 'open-highlight-modal',
             label: 'Highlight...',
@@ -422,7 +455,7 @@ function CodeEditor({ isScribbleMode, scribbleTool = 'pen', scribbleColor = '#ff
         <div className="monaco-wrapper" style={{ position: 'relative', display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
 
             <div
-                className={`editor-viewport ${backgroundImage && experimental?.customBackground ? 'has-bg-media' : ''}`}
+                className={`editor-viewport ${backgroundImage && features.customBackground ? 'has-bg-media' : ''}`}
                 style={{
                     flex: isSplitMode ? '0 0 50%' : '1 1 100%',
                     width: isSplitMode ? '50%' : '100%',
@@ -435,7 +468,7 @@ function CodeEditor({ isScribbleMode, scribbleTool = 'pen', scribbleColor = '#ff
                 }}
             >
                 {/* Background Media Layer */}
-                {backgroundImage && experimental?.customBackground && (
+                {backgroundImage && features.customBackground && (
                     <div style={{
                         position: 'absolute',
                         top: 0,
@@ -472,10 +505,10 @@ function CodeEditor({ isScribbleMode, scribbleTool = 'pen', scribbleColor = '#ff
                     </div>
                 )}
 
-                <div style={{ position: 'relative', zIndex: 1, height: '100%', width: '100%', background: 'var(--bg-primary)' }}>
+                <div style={{ position: 'relative', zIndex: 1, height: '100%', width: '100%', background: (backgroundImage && features.customBackground) ? 'transparent' : 'var(--bg-primary)' }}>
                     <Editor
                         height="100%"
-                        className={backgroundImage && experimental?.customBackground ? 'monaco-transparent' : ''}
+                        className={backgroundImage && features.customBackground ? 'monaco-transparent' : ''}
                         path={(function () {
                             const extMap = { python: 'py', javascript: 'js', typescript: 'ts', java: 'java', go: 'go', rust: 'rs', cpp: 'cpp', c: 'c', html: 'html', css: 'css', json: 'json', markdown: 'md' };
                             const ext = extMap[activeFile.language] || activeFile.language;
@@ -514,7 +547,7 @@ function CodeEditor({ isScribbleMode, scribbleTool = 'pen', scribbleColor = '#ff
                         onMount={handleEditorDidMount}
                     />
 
-                    {experimental?.scribble && activeFile && (
+                    {features.scribble && activeFile && (
                         <ScribbleOverlay
                             key={activeFile.id}
                             fileId={activeFile.id}

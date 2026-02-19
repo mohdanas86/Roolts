@@ -10,7 +10,8 @@ function OutputPanel() {
         clearOutput, history, setShowOutput,
         appendOutput, setExecuting, setError,
         input, setInput, // Use global input state
-        isInteractive, setIsInteractive // Use global interactive state
+        isInteractive, setIsInteractive, // Use global interactive state
+        isSplitMode
     } = useExecutionStore();
     const [showHistory, setShowHistory] = useState(false);
     // Removed local input/interactive state to persist across tab switches
@@ -149,13 +150,15 @@ function OutputPanel() {
                     >
                         <FiTrash2 />
                     </button>
-                    <button
-                        className="btn btn--ghost btn--icon"
-                        onClick={() => setShowOutput(false)}
-                        title="Close Output"
-                    >
-                        <FiX />
-                    </button>
+                    {!isSplitMode && (
+                        <button
+                            className="btn btn--ghost btn--icon"
+                            onClick={() => setShowOutput(false)}
+                            title="Close Output"
+                        >
+                            <FiX />
+                        </button>
+                    )}
                 </div>
             </div>
 

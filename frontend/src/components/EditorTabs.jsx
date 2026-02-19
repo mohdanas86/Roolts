@@ -1,5 +1,5 @@
 import React from 'react';
-import { FiTerminal, FiX, FiTrash2, FiEdit3, FiRotateCcw, FiEdit2, FiCheckCircle, FiLayout, FiMonitor, FiColumns } from 'react-icons/fi';
+import { FiTerminal, FiX, FiTrash2, FiEdit3, FiRotateCcw, FiEdit2, FiCheckCircle, FiLayout, FiMonitor, FiColumns, FiSidebar } from 'react-icons/fi';
 import { LuEraser } from 'react-icons/lu';
 import { useFileStore, useExecutionStore, useSettingsStore, useUIStore } from '../store';
 import {
@@ -19,8 +19,8 @@ import EditorTab from './EditorTab';
 function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScribbleTool, scribbleColor, setScribbleColor, onUndo, onClear }) {
     const { files, openFiles, activeFileId, setActiveFile, closeFile, closeFiles } = useFileStore();
     const { showOutput, setShowOutput, isSplitMode, setSplitMode } = useExecutionStore();
-    const { experimental } = useSettingsStore();
-    const { addNotification } = useUIStore();
+    const { features } = useSettingsStore();
+    const { addNotification, sidebarOpen, toggleSidebar } = useUIStore();
 
     const openFilesData = (Array.isArray(files) && Array.isArray(openFiles))
         ? openFiles.map((id) => files.find((f) => f.id === id)).filter(Boolean)
@@ -96,6 +96,7 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
 
     return (
         <div className="editor-tabs">
+
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -244,7 +245,7 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
                     <FiColumns size={16} />
                 </button>
 
-                {experimental?.scribble && (
+                {features?.scribble && (
                     <>
                         {isScribbleMode && (
                             <div style={{

@@ -7,9 +7,10 @@ import {
     FiPlus, FiTrash2, FiImage, FiList, FiChevronLeft, FiFolder, FiTag,
     FiClock, FiStar, FiChevronRight, FiSearch, FiMoreHorizontal,
     FiBold, FiItalic, FiList as FiListIcon, FiCheckSquare, FiType, FiPaperclip,
-    FiShare, FiSend, FiZap, FiSettings, FiMaximize2, FiMinimize2, FiSmile, FiX
+    FiShare, FiSend, FiZap, FiSettings, FiMaximize2, FiMinimize2, FiSmile, FiX, FiHelpCircle
 } from 'react-icons/fi';
 import { useNotesStore, useUIStore } from '../../store';
+import { aiService } from '../../services/api'; // Import AI Service
 import { v4 as uuidv4 } from 'uuid';
 
 // Register Quill modules
@@ -94,6 +95,7 @@ const RooltsNotes = ({ onBack, isWindowed }) => {
     const [isResizingAI, setIsResizingAI] = useState(false);
     const [aiInput, setAiInput] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
+    const [contextMenu, setContextMenu] = useState(null); // { x, y, selection }
     const quillRef = useRef(null);
     const messageEndRef = useRef(null);
 
@@ -207,24 +209,58 @@ const RooltsNotes = ({ onBack, isWindowed }) => {
         setActiveNote(newNote.id);
     };
 
-    const handleSendAi = async () => {
-        if (!aiInput.trim()) return;
-        const query = aiInput;
-        setAiInput('');
+    const handleSendAi = async (forcedQuery = null) => {
+        const query = forcedQuery || aiInput;
+        if (!query || !query.trim()) return;
+
+        if (!forcedQuery) setAiInput('');
         addAiMessage({ role: 'user', content: query });
         setIsStreaming(true);
 
-        // Context awareness simulation
-        const contextText = activeNote ? `Note: ${activeNote.title}\n${activeNote.content}` : "";
+        try {
+            // Context awareness
+            const systemPrompt = `[SYSTEM: You are a helpful assistant reading from a notepad. Explain concepts simply and naturally, focusing on the content's meaning. Do NOT explain HTML tags, technical rendering details, or markup syntax unless explicitly asked. Treat the content as plain text notes.]`;
+            const context = activeNote
+                ? `${systemPrompt}\n\n[CONTEXT: The user is currently viewing a note titled "${activeNote.title}". Content:\n${activeNote.content}]\n\nUser Query: ${query}`
+                : `${systemPrompt}\n\nUser Query: ${query}`;
 
-        setTimeout(() => {
+            const response = await aiService.chat(
+                activeNote?.content || '',
+                'markdown',
+                context,
+                aiMessages.map(m => ({ role: m.role, content: m.content }))
+            );
+
             addAiMessage({
                 role: 'assistant',
-                content: `I've analyzed your notes "${activeNote?.title || 'Note'}". Based on the context, here's a suggestion for "${query}":\n\nI recommend adding a section about sustainable architecture to match your recent macOS Tahoe design principles.`
+                content: response.data.response || "I couldn't generate a response."
             });
+        } catch (error) {
+            console.error(error);
+            addAiMessage({ role: 'assistant', content: "Error: Failed to contact AI service. Please check your connection or settings." });
+        } finally {
             setIsStreaming(false);
-        }, 1500);
+        }
     };
+
+    // Context Menu Handler
+    const handleContextMenu = (e) => {
+        // Only show if text is selected
+        const selection = window.getSelection().toString();
+        if (selection && selection.trim().length > 0) {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, selection });
+        } else {
+            setContextMenu(null);
+        }
+    };
+
+    // Close context menu on click
+    useEffect(() => {
+        const handleClick = () => setContextMenu(null);
+        window.addEventListener('click', handleClick);
+        return () => window.removeEventListener('click', handleClick);
+    }, []);
 
     const insertResponseToNote = (content) => {
         if (!quillRef.current || !activeNote) return;
@@ -288,10 +324,28 @@ const RooltsNotes = ({ onBack, isWindowed }) => {
                                     <span>{activeNote.updatedAt ? new Date(activeNote.updatedAt).toLocaleString() : ''}</span>
                                     {activeNote.folderId && <span>in {folders.find(f => f.id === activeNote.folderId)?.name}</span>}
                                 </div>
-                                <ReactQuill ref={quillRef} theme="snow" value={editorContent} onChange={setEditorContent} modules={modules} placeholder="Start writing..." />
+                                <div onContextMenu={handleContextMenu} style={{ height: '100%' }}>
+                                    <ReactQuill ref={quillRef} theme="snow" value={editorContent} onChange={setEditorContent} modules={modules} placeholder="Start writing..." />
+                                </div>
                             </>
                         ) : <div className="notes-no-selection"><FiPlus size={48} /><span>Select a note</span></div>}
                     </div>
+                    {/* Custom Context Menu */}
+                    {contextMenu && (
+                        <div
+                            className="notes-context-menu"
+                            style={{ top: contextMenu.y, left: contextMenu.x }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setAiSidebarOpen(true);
+                                handleSendAi(`[SYSTEM: Explain this simply as if reading a note. Do not explain technical tags.]\n\nExplain this selection:\n"${contextMenu.selection}"`);
+                                setContextMenu(null);
+                            }}
+                        >
+                            <FiZap size={14} className="icon-pulse" />
+                            <span>Explain with AI</span>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -448,6 +502,18 @@ const RooltsNotes = ({ onBack, isWindowed }) => {
                 .ql-container.ql-snow { border: none !important; font-family: var(--font-body) !important; font-size: 15px; }
                 .ql-editor { padding: 0 !important; color: var(--text-primary); line-height: 1.6; }
                 .ql-editor.ql-blank::before { color: var(--text-muted); font-style: normal; left: 0; }
+
+                .notes-context-menu {
+                    position: fixed; z-index: 1000;
+                    background: var(--bg-tertiary); border: 1px solid var(--border-primary);
+                    padding: 8px 12px; border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                    display: flex; align-items: center; gap: 8px; cursor: pointer;
+                    font-size: 13px; color: var(--text-primary);
+                    animation: fadeIn 0.1s ease-out;
+                }
+                .notes-context-menu:hover { background: var(--accent-primary); color: white; }
+                .notes-context-menu .icon-pulse { animation: pulse 2s infinite; }
             `}</style>
         </div>
     );
