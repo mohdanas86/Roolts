@@ -14,6 +14,7 @@
  */
 
 import io from 'socket.io-client';
+import { useSettingsStore } from '../store';
 
 class LSPClient {
     constructor() {
@@ -28,6 +29,9 @@ class LSPClient {
         this.currentLanguage = null;
         this.currentContent = null;
         this.documentVersions = new Map(); // uri -> version number
+
+        // Debounce timer for document changes
+        this.changeTimeout = null;
     }
 
     /**
@@ -39,7 +43,6 @@ class LSPClient {
         if (this.socket) return; // Already connected
 
         this.socket = io(backendUrl, {
-            transports: ['websocket', 'polling'],
             reconnection: true,
             reconnectionAttempts: 5,
         });
@@ -174,7 +177,7 @@ class LSPClient {
     }
 
     /**
-     * Notify the LSP server about document changes.
+     * Notify the LSP server about document changes (debounced).
      */
     changeDocument(uri, language, content) {
         this.currentContent = content;
@@ -184,13 +187,21 @@ class LSPClient {
         const server = this.activeServers.get(lspLang);
         if (!server || !server.initialized) return;
 
-        const version = (this.documentVersions.get(uri) || 0) + 1;
-        this.documentVersions.set(uri, version);
+        // Clear existing timeout
+        if (this.changeTimeout) {
+            clearTimeout(this.changeTimeout);
+        }
 
-        this._sendNotification(lspLang, 'textDocument/didChange', {
-            textDocument: { uri, version },
-            contentChanges: [{ text: content }],
-        });
+        // Debounce the actual LSP textDocument/didChange send by 500ms
+        this.changeTimeout = setTimeout(() => {
+            const version = (this.documentVersions.get(uri) || 0) + 1;
+            this.documentVersions.set(uri, version);
+
+            this._sendNotification(lspLang, 'textDocument/didChange', {
+                textDocument: { uri, version },
+                contentChanges: [{ text: content }],
+            });
+        }, 500);
     }
 
     /**
@@ -376,7 +387,7 @@ class LSPClient {
             const timeout = setTimeout(() => {
                 this.pendingRequests.delete(id);
                 reject(new Error(`LSP request timeout: ${method}`));
-            }, 10000);
+            }, 30000); // Increased from 10s to 30s to allow heavy local LSP servers to start
 
             this.pendingRequests.set(id, { resolve, reject, timeout });
 
@@ -448,7 +459,12 @@ class LSPClient {
         if (!this.monaco || !params) return;
 
         const uri = params.uri;
-        const diagnostics = params.diagnostics || [];
+        let diagnostics = params.diagnostics || [];
+
+        const { features } = useSettingsStore.getState();
+        if (!features?.validation) {
+            diagnostics = []; // Clear diagnostics if user has disabled validation squiggles
+        }
 
         // Convert LSP diagnostics to Monaco markers
         const markers = diagnostics.map(d => ({

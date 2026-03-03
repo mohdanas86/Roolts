@@ -15,13 +15,35 @@ import {
 } from '@dnd-kit/sortable';
 import FileItem from './FileItem';
 function FileExplorer() {
-    const { files, activeFileId, openFile, deleteFile, renameFile, addFile, openFiles, closeFile, closeFiles, deleteFiles } = useFileStore();
-    const { openModal, addNotification, toggleSidebar } = useUIStore();
+    const files = useFileStore(
+        state => state.files.map(f => ({ id: f.id, name: f.name, language: f.language, modified: f.modified })),
+        (a, b) => a.length === b.length && a.every((f, i) => f.id === b[i].id && f.name === b[i].name && f.modified === b[i].modified)
+    );
+    const activeFileId = useFileStore(state => state.activeFileId);
+    const openFile = useFileStore(state => state.openFile);
+    const deleteFile = useFileStore(state => state.deleteFile);
+    const renameFile = useFileStore(state => state.renameFile);
+    const addFile = useFileStore(state => state.addFile);
+    const closeFile = useFileStore(state => state.closeFile);
+
+    const openModal = useUIStore(state => state.openModal);
+    const addNotification = useUIStore(state => state.addNotification);
+    const toggleSidebar = useUIStore(state => state.toggleSidebar);
     const [renamingId, setRenamingId] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const fileInputRef = useRef(null);
     const folderInputRef = useRef(null);
     const contextMenuRef = useRef(null);
+
+    useEffect(() => {
+        const handleOpenProject = () => {
+            if (folderInputRef.current) {
+                folderInputRef.current.click();
+            }
+        };
+        window.addEventListener('open-project', handleOpenProject);
+        return () => window.removeEventListener('open-project', handleOpenProject);
+    }, []);
 
     // Close context menu on outside click
     useEffect(() => {
@@ -37,11 +59,35 @@ function FileExplorer() {
     const getLanguageFromExtension = (filename) => {
         const ext = filename.split('.').pop().toLowerCase();
         const map = {
-            'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
-            'py': 'python', 'java': 'java', 'c': 'c', 'cpp': 'cpp', 'html': 'html',
-            'css': 'css', 'json': 'json', 'md': 'markdown', 'rs': 'rust', 'go': 'go'
+            'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript',
+            'ts': 'typescript', 'tsx': 'typescript',
+            'py': 'python', 'pyw': 'python',
+            'java': 'java', 'c': 'c', 'cpp': 'cpp', 'h': 'c', 'hpp': 'cpp',
+            'cs': 'csharp', 'rb': 'ruby', 'php': 'php',
+            'swift': 'swift', 'kt': 'kotlin', 'kts': 'kotlin',
+            'go': 'go', 'rs': 'rust', 'dart': 'dart',
+            'r': 'r', 'R': 'r', 'scala': 'scala', 'lua': 'lua',
+            'pl': 'perl', 'pm': 'perl',
+            'sh': 'shell', 'bash': 'shell', 'zsh': 'shell', 'bat': 'bat', 'ps1': 'powershell',
+            'html': 'html', 'htm': 'html', 'xml': 'xml', 'svg': 'xml',
+            'css': 'css', 'scss': 'scss', 'sass': 'scss', 'less': 'less',
+            'json': 'json', 'jsonc': 'json',
+            'md': 'markdown', 'mdx': 'markdown',
+            'yaml': 'yaml', 'yml': 'yaml',
+            'toml': 'toml', 'ini': 'ini', 'cfg': 'ini',
+            'sql': 'sql',
+            'csv': 'plaintext', 'tsv': 'plaintext', 'txt': 'plaintext', 'log': 'plaintext',
+            'dockerfile': 'dockerfile',
+            'graphql': 'graphql', 'gql': 'graphql',
+            'vue': 'html', 'svelte': 'html',
+            'env': 'plaintext', 'gitignore': 'plaintext',
         };
         return map[ext] || 'plaintext';
+    };
+
+    const isImageFile = (filename) => {
+        const ext = filename.split('.').pop().toLowerCase();
+        return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg'].includes(ext);
     };
 
     const readFileContent = (file) => {
@@ -49,7 +95,13 @@ function FileExplorer() {
             const reader = new FileReader();
             reader.onload = (e) => resolve(e.target.result);
             reader.onerror = (e) => reject(e);
-            reader.readAsText(file);
+
+            // Read images as data URLs, everything else as text
+            if (isImageFile(file.name)) {
+                reader.readAsDataURL(file);
+            } else {
+                reader.readAsText(file);
+            }
         });
     };
 
@@ -193,15 +245,17 @@ function FileExplorer() {
                 onChange={handleFolderUpload}
             />
 
-            <div className="file-explorer__header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--border-primary)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>Files</h3>
-                </div>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                    <button className="btn btn--icon btn--ghost" onClick={() => openModal('newFile')} title="New File"><FiFilePlus size={16} /></button>
-                    <button className="btn btn--icon btn--ghost" onClick={() => folderInputRef.current.click()} title="Upload Folder"><FiFolderPlus size={16} /></button>
-                    <button className="btn btn--icon btn--ghost" onClick={() => fileInputRef.current.click()} title="Upload Files"><FiUpload size={16} /></button>
-                    <button className="btn btn--icon btn--ghost" onClick={toggleSidebar} title="Collapse Sidebar"><FiChevronsLeft size={16} /></button>
+            <div className="file-explorer__header" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px', borderBottom: '1px solid var(--border-primary)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>Files</h3>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                        <button className="btn btn--icon btn--ghost" onClick={() => openModal('newFile')} title="New File"><FiFilePlus size={16} /></button>
+                        <button className="btn btn--icon btn--ghost" onClick={() => folderInputRef.current.click()} title="Open Folder"><FiFolderPlus size={16} /></button>
+                        <button className="btn btn--icon btn--ghost" onClick={() => fileInputRef.current.click()} title="Open File(s)"><FiUpload size={16} /></button>
+                        <button className="btn btn--icon btn--ghost" onClick={toggleSidebar} title="Collapse Sidebar"><FiChevronsLeft size={16} /></button>
+                    </div>
                 </div>
             </div>
 
@@ -272,6 +326,16 @@ function FileExplorer() {
                         style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', width: '100%', border: 'none', background: 'transparent', color: 'var(--error)', cursor: 'pointer', textAlign: 'left', fontSize: '12px' }}
                     >
                         <FiTrash2 size={14} /> Delete
+                    </button>
+                    <button
+                        className="context-menu-item"
+                        onClick={() => {
+                            closeFile(contextMenu.fileId);
+                            setContextMenu(null);
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', width: '100%', border: 'none', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', fontSize: '12px' }}
+                    >
+                        <FiX size={14} /> Close
                     </button>
                 </div>
             )}

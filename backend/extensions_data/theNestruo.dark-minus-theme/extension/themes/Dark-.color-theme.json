@@ -1,0 +1,370 @@
+{
+	"$schema": "vscode://schemas/color-theme",
+	"name": "Dark- (Visual Studio)",
+	"include": "./Dark--.color-theme.json",
+	"tokenColors": [
+		/*
+		 * Keywords -----------------------------------------------------------
+		 */
+		{
+			"name": "Keywords (flow control keywords and top level elements)",
+			"scope": [
+				"keyword.control",
+				"keyword.operator.ternary",
+				// [JavaScript][TypeScript]
+				"storage.type.class",
+				"storage.type.function",
+				"storage.type.interface",
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Keywords (not top level elements)",
+			"scope": [
+				// [Java]
+				"keyword.other.import.java",
+				"keyword.other.package.java",
+				"meta.method.body.java storage.modifier.java",
+				// [JavaScript][TypeScript]
+				"keyword.control.import",
+				"keyword.control.type",
+				"keyword.control.from",
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Keywords",
+			"scope": [
+				"keyword",
+				// (@see keyword.operator)
+				"keyword.operator.new",
+				"keyword.operator.expression",
+				"keyword.operator.cast",
+				"keyword.operator.sizeof",
+				"keyword.operator.alignof",
+				"keyword.operator.typeid",
+				"keyword.operator.alignas",
+				"keyword.operator.instanceof",
+				"keyword.operator.wordlike",
+				// [Java][JavaScript][TypeScript]
+				"storage.modifier",
+				// [Python]
+				"keyword.operator.logical.python",
+				// [SQL]
+				"support.function.aggregate.sql",
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Keywords (types declaration)",
+			"scope": [
+				"storage.type",
+				"storage.type.built-in.primitive",
+				"storage.type.primitive",
+				"storage.type.struct",
+				"support.type.builtin",
+				"support.type.primitive",
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Keywords (constants and variables)",
+			"scope": [
+				"constant.language",
+				"variable.language",
+			],
+			"settings": {
+				"foreground": "#569cd6", // (from "Dark (Visual Studio)")
+				"fontStyle": "italic" // (additional italics)
+			}
+		},
+		{
+			"name": "Not keywords",
+			"scope": [
+				"keyword.operator",
+				"keyword.control.ternary",
+				"storage.type.function.arrow",
+				"storage.modifier.array.bracket",
+				// [Java]
+				"storage.modifier.import.java",
+				"storage.modifier.package.java",
+				"storage.type.java",
+				"storage.type.object.array.java",
+				"variable.language.wildcard.java",
+			],
+			"settings": {
+				"foreground": "#d4d4d4" // (restores "editor.foreground")
+			}
+		},
+		/*
+		 * Constants and numbers ----------------------------------------------
+		 */
+		{
+			"name": "Constants",
+			"scope": [
+				"constant",
+				// [Assembly]
+				"support.type.register",
+				// [Batch]
+				"variable.parameter.batchfile",
+				"variable.parameter.repeat.batchfile",
+			],
+			"settings": {
+				"foreground": "#b5cea8" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Numbers",
+			"scope": [
+				"constant.numeric",
+				"keyword.operator.plus.exponent",
+				"keyword.operator.minus.exponent",
+				"keyword.other.unit",
+			],
+			"settings": {
+				"foreground": "#b5cea8" // (from "Dark (Visual Studio)")
+			}
+		},
+		/*
+		 * Strings and RegExps ------------------------------------------------
+		 */
+		{
+			"name": "Strings and RegExps",
+			"scope": [
+				"string",
+				"punctuation.definition.string",
+			],
+			"settings": {
+				"foreground": "#ce9178" // (from "Dark (Visual Studio)")
+			}
+		},
+		/*
+		 * Comments -----------------------------------------------------------
+		 */
+		{
+			"name": "Special comments",
+			"scope": [
+				// [Java] Javadoc:
+				"keyword.other.documentation.javadoc.java",
+				// [JavaScript][TypeScript] JSDoc:
+				"storage.type.class.jsdoc",
+			],
+			"settings": {
+				"foreground": "#d4d4d4a0", // ($a0 opacity of editor.foreground)
+				"fontStyle": "italic" // (additional italics)
+			}
+		},
+		/*
+		 * Tag-based languages ------------------------------------------------
+		 */
+		{
+			"name": "Tags",
+			"scope": [
+				// [HTML][XML]
+				"entity.name.tag",
+				"punctuation.definition.tag",
+			],
+			"settings": {
+				"foreground": "#569cd6" // (same as "keyword"; was "#d7ba7d" in "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Not tags",
+			"scope": [
+				// [JSON][YAML] (prevents wall of strings):
+				"entity.name.tag.yaml",
+				"support.type.property-name",
+				"punctuation.support.type.property-name",
+			],
+			"settings": {
+				"foreground": "#d4d4d4" // (restores as "editor.foreground")
+			}
+		},
+		/*
+		 * [Assembly] ---------------------------------------------------------
+		 */
+		{
+			"name": "Assembly keywords",
+			"scope": [
+				"keyword.mnemonic.z80asm",
+				"keyword.control.z80asm",
+				"support.type.flag.z80asm",
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		/*
+		 * [Batch] ------------------------------------------------------------
+		 */
+		{
+			"name": "Batch keywords",
+			"scope": [
+				"keyword.command.batchfile",
+				"keyword.control.statement.batchfile",
+				"keyword.operator.logical.batchfile", // NOT
+				"keyword.operator.pipe.batchfile", // |
+				"keyword.operator.redirection.batchfile", // < >
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Batch comments and visual noise",
+			"scope": [
+				// [Batch]
+				"keyword.command.rem.batchfile", // REM
+				"keyword.operator.at.batchfile", // @
+			],
+			"settings": {
+				"foreground": "#d4d4d480" // (same as "comment"; 50% "editor.foreground")
+			}
+		},
+		/*
+		 * [C] ----------------------------------------------------------------
+		 */
+		{
+			"name": "C Keywords",
+			"scope": [
+				"keyword.control.directive",
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"scope": [
+				"entity.name.scope-resolution",
+				"support.other.attribute.cpp",
+			],
+			"settings": {
+				"foreground": "#d4d4d4c0", // (halfway between editor.foreground and comment)
+				"fontStyle": "italic" // (additional italics)
+			}
+		},
+		{
+			"scope": [
+				"punctuation.separator.scope-resolution",
+			],
+			"settings": {
+				"foreground": "#d4d4d4c0" // (halfway between editor.foreground and comment)
+			}
+		},
+		/*
+		 * [Makefile] ---------------------------------------------------------
+		 */
+		{
+			"name": "Makefile keywords",
+			"scope": [
+				"variable.language.makefile",
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Makefile strings",
+			"scope": [
+				"string.interpolated.makefile",
+			],
+			"settings": {
+				"foreground": "#ce9178" // (from "Dark (Visual Studio)")
+			}
+		},
+		/*
+		 * [Markdown] ---------------------------------------------------------
+		 */
+		{
+			"name": "Markdown punctuation",
+			"scope": [
+				"punctuation.definition.heading", // #, ##, ###
+				"punctuation.definition.list.begin", // *, -
+				"punctuation.definition.link.description", // ![]()
+				"punctuation.definition.link.title", // []()
+				"punctuation.definition.metadata.markdown", // []()
+				"punctuation.definition.quote", // >
+			],
+			"settings": {
+				"foreground": "#569cd6" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Markdown strings",
+			"scope": [
+				"markup.inline.raw.string", // `this`
+				"meta.link.inline.markdown", // [etc](this)
+				"meta.image.inline.markdown", // ![this](etc)
+				"punctuation.definition.markdown", // ```this```
+				"punctuation.definition.raw.markdown",
+			],
+			"settings": {
+				"foreground": "#ce9178" // (from "Dark (Visual Studio)")
+			}
+		},
+		{
+			"name": "Markdown annotations",
+			"scope": [
+				"string.other.link.description.markdown",
+				"fenced_code.block.language",
+			],
+			"settings": {
+				"foreground": "#d4d4d4c0", // (halfway between editor.foreground and comment)
+				"fontStyle": "italic" // (additional italics)
+			}
+		},
+		{
+			"name": "Not Markdown strings",
+			"scope": [
+				"string.other.link.title.markdown", // [this](etc)
+			],
+			"settings": {
+				"foreground": "#d4d4d4" // (restores as "editor.foreground")
+			}
+		},
+		/*
+		 * [Java] -------------------------------------------------------------
+		 */
+		{
+			"name": "Java annotations and generics",
+			"scope": [
+				// [Java] Annotations:
+				"storage.type.annotation.java",
+				"punctuation.definition.annotation.java",
+				"punctuation.definition.annotation-arguments",
+				"constant.other.key.java",
+				// [Java] Generics:
+				"storage.type.generic.java",
+				"storage.type.generic.wildcard.java",
+				"punctuation.bracket.angle.java",
+			],
+			"settings": {
+				"foreground": "#d4d4d4c0", // (halfway between editor.foreground and comment)
+				"fontStyle": "italic" // (additional italics)
+			}
+		},
+		/*
+		 * [TypeScript] -------------------------------------------------------
+		 */
+		{
+			"name": "TypeScript generics",
+			"scope": [
+				// [TypeScript] Generics:
+				"meta.type.parameters.ts",
+				"meta.type.parameters.ts storage.modifier.ts",
+			],
+			"settings": {
+				"foreground": "#d4d4d4c0", // (halfway between editor.foreground and comment)
+				"fontStyle": "italic" // (additional italics)
+			}
+		},
+	]
+}

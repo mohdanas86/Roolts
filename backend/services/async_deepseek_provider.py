@@ -146,16 +146,23 @@ class AsyncDeepSeekProvider:
 
                         data = await response.json()
                         if 'choices' in data and data['choices']:
-                            content = data['choices'][0]['message']['content']
+                            message = data['choices'][0]['message']
+                            content = message.get('content', '')
+                            reasoning = message.get('reasoning_content', '')
+                            
                             # Estimate tokens (simple char count / 4)
                             tokens = len(content) // 4
                             performance_monitor.record_request('deepseek', time.time() - start_time, True, tokens)
                             
-                            return {
+                            result = {
                                 'response': content,
                                 'model': 'deepseek',
                                 'provider': 'DeepSeek (Async)'
                             }
+                            if reasoning:
+                                result['reasoning'] = reasoning
+                                
+                            return result
                         
                         performance_monitor.record_request('deepseek', time.time() - start_time, False)
                         return {'error': 'Empty response from DeepSeek', 'model': 'deepseek'}

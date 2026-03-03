@@ -6,6 +6,28 @@ if (typeof window !== 'undefined' && window.global === undefined) {
     window.global = window;
 }
 
+// Simple throttle utility to prevent flooding the WebSocket
+const throttle = (func, limit) => {
+    let inThrottle;
+    return function (...args) {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => (inThrottle = false), limit);
+        }
+    };
+};
+
+const debounce = (func, delay) => {
+    let timeoutId;
+    return function (...args) {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+            func.apply(this, args);
+        }, delay);
+    };
+};
+
 class CollaborationService {
     constructor() {
         this.socket = null;
@@ -118,6 +140,10 @@ class CollaborationService {
         });
     }
 
+    isConnected() {
+        return this.socket && this.socket.connected;
+    }
+
     joinRoom(roomId, username) {
         if (!this.socket) this.connect();
         this.roomId = roomId;
@@ -197,11 +223,11 @@ class CollaborationService {
         });
     }
 
-    sendCodeChange(content, fileId) {
+    sendCodeChange = debounce((content, fileId) => {
         if (this.socket && this.roomId) {
             this.socket.emit('code-change', { roomId: this.roomId, content, fileId });
         }
-    }
+    }, 300);
 
     sendCursorMove(position, fileId) {
         if (this.socket && this.roomId) {
@@ -240,7 +266,7 @@ class CollaborationService {
     }
 
     // Remote control methods
-    sendMouseMove(x, y, percentX, percentY) {
+    sendMouseMove = throttle((x, y, percentX, percentY) => {
         if (this.socket && this.hasControl && this.controlTarget) {
             this.socket.emit('remote-mouse-move', {
                 target: this.controlTarget,
@@ -248,7 +274,7 @@ class CollaborationService {
                 sender: this.socket.id
             });
         }
-    }
+    }, 30); // Max ~33 fps
 
     sendClick(x, y, percentX, percentY, button = 0) {
         if (this.socket && this.hasControl && this.controlTarget) {
@@ -270,7 +296,7 @@ class CollaborationService {
         }
     }
 
-    sendScroll(deltaX, deltaY) {
+    sendScroll = throttle((deltaX, deltaY) => {
         if (this.socket && this.hasControl && this.controlTarget) {
             this.socket.emit('remote-scroll', {
                 target: this.controlTarget,
@@ -278,7 +304,7 @@ class CollaborationService {
                 sender: this.socket.id
             });
         }
-    }
+    }, 30);
 
     isConnected() {
         return this.socket && this.socket.connected;

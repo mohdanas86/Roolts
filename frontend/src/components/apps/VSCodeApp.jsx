@@ -27,13 +27,36 @@ const VSCodeApp = ({ onBack }) => {
     const activeFile = files.find(f => f.id === activeFileId);
 
 
-    const [activeTab, setActiveTab] = useState('explore'); // explore, recommended, installed, compiler
+    const [activeTab, setActiveTab] = useState('explore');
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
     const [compilerOutput, setCompilerOutput] = useState(null);
     const [stdin, setStdin] = useState('');
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+    const [languages, setLanguages] = useState([]);
+    const [isLanguagesLoading, setIsLanguagesLoading] = useState(false);
+
+    const fetchLanguages = useCallback(async () => {
+        setIsLanguagesLoading(true);
+        try {
+            const data = await executorService.getLanguages();
+            setLanguages(data);
+        } catch (error) {
+            console.error('Failed to load languages:', error);
+            addNotification({ type: 'error', message: 'Failed to fetch language runtimes status' });
+        } finally {
+            setIsLanguagesLoading(false);
+        }
+    }, [addNotification]);
+
+    useEffect(() => {
+        if (activeTab === 'compiler') {
+            fetchLanguages();
+        }
+    }, [activeTab, fetchLanguages]);
+
 
     const RECOMMENDED_IDS = [
         { id: 'ms-python.python', name: 'python', namespace: 'ms-python', displayName: 'Python', description: 'Rich support for the Python language with extension access points for IntelliSense, debugging, and more.', iconUrl: 'https://open-vsx.org/api/ms-python/python/2026.0.0/file/icon.png' },
@@ -60,11 +83,9 @@ const VSCodeApp = ({ onBack }) => {
         setIsLoading(true);
         console.log(`Searching marketplace for: ${query}`);
         try {
-            const response = await fetch(`/api/extensions/search?query=${encodeURIComponent(query)}`);
-            if (!response.ok) throw new Error('Marketplace connection failed');
-            const data = await response.json();
-            if (data.extensions) {
-                setSearchResults(data.extensions);
+            const response = await api.get(`/extensions/search?query=${encodeURIComponent(query)}`);
+            if (response.data && response.data.extensions) {
+                setSearchResults(response.data.extensions);
             }
         } catch (error) {
             console.error('Error:', error);
@@ -88,9 +109,9 @@ const VSCodeApp = ({ onBack }) => {
             // If we're installing a recommended pick that doesn't have a downloadUrl yet
             if (!installData.downloadUrl) {
                 console.log(`>>> downloadUrl missing, searching marketplace for info...`);
-                const searchRes = await fetch(`/api/extensions/search?query=${encodeURIComponent(id)}`);
-                if (searchRes.ok) {
-                    const data = await searchRes.json();
+                try {
+                    const searchRes = await api.get(`/extensions/search?query=${encodeURIComponent(id)}`);
+                    const data = searchRes.data;
                     // Try exact match first, then loose match on name
                     let match = data.extensions?.find(e => `${e.namespace}.${e.name}` === id);
                     if (!match) {
@@ -105,6 +126,8 @@ const VSCodeApp = ({ onBack }) => {
                     } else if (match?.files?.package) {
                         installData.downloadUrl = match.files.package;
                     }
+                } catch (err) {
+                    console.error("Failed to fetch extension download URL details", err);
                 }
             }
 
@@ -245,6 +268,69 @@ const VSCodeApp = ({ onBack }) => {
         }
     };
 
+    // ── Open Web Preview for HTML/CSS/JS ──
+    const openWebPreview = (content, lang) => {
+        const allFiles = useFileStore.getState().files;
+        let htmlContent = '';
+
+        if (lang === 'html') {
+            // Start with the HTML file's content
+            htmlContent = content;
+
+            // Auto-inject linked CSS and JS from project files
+            const cssFiles = allFiles.filter(f => f.language === 'css' && f.id !== activeFile.id);
+            const jsFiles = allFiles.filter(f => (f.language === 'javascript' || f.language === 'js') && f.id !== activeFile.id);
+
+            // Inject CSS before </head> or at the top
+            if (cssFiles.length > 0) {
+                const cssBlock = cssFiles.map(f => `<style>/* ${f.name || 'style.css'} */\n${f.content}</style>`).join('\n');
+                if (htmlContent.includes('</head>')) {
+                    htmlContent = htmlContent.replace('</head>', cssBlock + '\n</head>');
+                } else {
+                    htmlContent = cssBlock + '\n' + htmlContent;
+                }
+            }
+
+            // Inject JS before </body> or at the end
+            if (jsFiles.length > 0) {
+                const jsBlock = jsFiles.map(f => `<script>/* ${f.name || 'script.js'} */\n${f.content}</script>`).join('\n');
+                if (htmlContent.includes('</body>')) {
+                    htmlContent = htmlContent.replace('</body>', jsBlock + '\n</body>');
+                } else {
+                    htmlContent = htmlContent + '\n' + jsBlock;
+                }
+            }
+        } else if (lang === 'css') {
+            htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>CSS Preview</title><style>${content}</style></head><body><h1>CSS Preview</h1><p>This is a preview of your CSS styles.</p><div class="container"><div class="box">Box 1</div><div class="box">Box 2</div><div class="box">Box 3</div></div></body></html>`;
+        } else if (lang === 'javascript' || lang === 'js') {
+            // For standalone JS, wrap in HTML with a console output panel
+            htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>JS Preview</title><style>
+body{font-family:monospace;background:#1e1e1e;color:#d4d4d4;margin:0;padding:20px}
+#console{white-space:pre-wrap;padding:16px;background:#0d0d0d;border-radius:8px;min-height:200px;border:1px solid #333}
+h3{color:#569cd6}
+.log{color:#d4d4d4}.error{color:#f44747}.warn{color:#dcdcaa}
+</style></head><body><h3>▶ JavaScript Console Output</h3><div id="console"></div><script>
+(function(){
+  const c=document.getElementById('console');
+  function out(cls,args){const d=document.createElement('div');d.className=cls;d.textContent=[...args].map(a=>typeof a==='object'?JSON.stringify(a,null,2):String(a)).join(' ');c.appendChild(d)}
+  console.log=(...a)=>out('log',a);
+  console.error=(...a)=>out('error',a);
+  console.warn=(...a)=>out('warn',a);
+  window.onerror=(m,s,l,c,e)=>{out('error',['Error: '+m+' (line '+l+')']);return true};
+})();
+</script><script>${content}</script></body></html>`;
+        }
+
+        // Open in a new popup window
+        const previewWindow = window.open('', '_blank', 'width=900,height=700,menubar=no,toolbar=no,location=no,status=no');
+        if (previewWindow) {
+            previewWindow.document.open();
+            previewWindow.document.write(htmlContent);
+            previewWindow.document.close();
+            previewWindow.document.title = `Preview: ${activeFile.name || 'Untitled'}`;
+        }
+    };
+
     // Run the active editor file
     const runActiveFile = async () => {
         if (!activeFile || !activeFile.content) {
@@ -255,12 +341,19 @@ const VSCodeApp = ({ onBack }) => {
         const lang = activeFile.language?.toLowerCase() || 'python';
         const filename = activeFile.name || 'script.py';
 
+        // Web languages → open in preview window instead of backend executor
+        if (['html', 'css', 'javascript', 'js'].includes(lang)) {
+            openWebPreview(activeFile.content, lang);
+            addNotification({ type: 'success', message: `Opened ${filename} in preview window` });
+            return;
+        }
+
         setExecuting(true);
         setCompilerOutput(null);
         const startTime = Date.now();
 
         try {
-            const result = await executorService.execute(activeFile.content, lang, filename, stdin);
+            const result = await executorService.executeWithProject(activeFile.content, lang, filename, stdin);
             const elapsed = Date.now() - startTime;
             setExecutionTime(elapsed);
 
@@ -394,49 +487,45 @@ const VSCodeApp = ({ onBack }) => {
 
     return (
         <div className="marketplace-container" onContextMenu={handleContextMenu}>
-            {/* Sidebar Navigation */}
-            <div className="sidebar" style={{ width: '260px' }}>
-                <div style={{ padding: '0 24px 32px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ background: 'var(--accent-gradient)', padding: '8px', borderRadius: '10px' }}>
-                        <VscExtensions size={24} color="white" />
-                    </div>
-                    <span style={{ fontWeight: '800', fontSize: '18px', letterSpacing: '-0.025em', fontFamily: 'var(--font-heading)' }}>Marketplace</span>
+            {/* Compact Tab Bar (replaces heavy sidebar) */}
+            <div className="ext-tab-bar">
+                <div className="ext-tab-bar-left">
+                    <button className="btn btn--ghost btn--icon" onClick={onBack} title="Back to Apps" style={{ marginRight: '4px' }}>
+                        <FiChevronLeft size={16} />
+                    </button>
+                    <VscExtensions size={16} style={{ color: 'var(--accent-primary)' }} />
+                    <span className="ext-tab-bar-title">Extensions</span>
                 </div>
-
-                <div className={`panel-tab ${activeTab === 'compiler' ? 'panel-tab--active' : ''}`} style={{ justifyContent: 'flex-start', paddingLeft: '24px' }} onClick={() => setActiveTab('compiler')}>
-                    <FiCpu size={18} /> Compiler
-                </div>
-                <div className={`panel-tab ${activeTab === 'explore' ? 'panel-tab--active' : ''}`} style={{ justifyContent: 'flex-start', paddingLeft: '24px' }} onClick={() => setActiveTab('explore')}>
-                    <FiSearch size={18} /> Explore
-                </div>
-                <div className={`panel-tab ${activeTab === 'recommended' ? 'panel-tab--active' : ''}`} style={{ justifyContent: 'flex-start', paddingLeft: '24px' }} onClick={() => setActiveTab('recommended')}>
-                    <FiStar size={18} /> Recommended
-                </div>
-                <div className={`panel-tab ${activeTab === 'installed' ? 'panel-tab--active' : ''}`} style={{ justifyContent: 'flex-start', paddingLeft: '24px' }} onClick={() => setActiveTab('installed')}>
-                    <FiLayers size={18} /> Installed ({installedExtensions.length})
-                </div>
-
-                <div style={{ marginTop: 'auto', padding: '24px' }}>
-                    <button className="btn btn--secondary" style={{ width: '100%' }} onClick={onBack}>
-                        <FiChevronLeft /> Exit
+                <div className="ext-tab-bar-tabs">
+                    <button className={`ext-tab ${activeTab === 'compiler' ? 'ext-tab--active' : ''}`} onClick={() => setActiveTab('compiler')}>
+                        <FiCpu size={13} /> Compiler
+                    </button>
+                    <button className={`ext-tab ${activeTab === 'explore' ? 'ext-tab--active' : ''}`} onClick={() => setActiveTab('explore')}>
+                        <FiSearch size={13} /> Explore
+                    </button>
+                    <button className={`ext-tab ${activeTab === 'recommended' ? 'ext-tab--active' : ''}`} onClick={() => setActiveTab('recommended')}>
+                        <FiStar size={13} /> Picks
+                    </button>
+                    <button className={`ext-tab ${activeTab === 'installed' ? 'ext-tab--active' : ''}`} onClick={() => setActiveTab('installed')}>
+                        <FiLayers size={13} /> Installed ({installedExtensions.length})
                     </button>
                 </div>
             </div>
 
             {/* Main Content Area */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ padding: '32px 40px', borderBottom: '1px solid var(--border-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-secondary)' }}>
-                    <div>
-                        <h2 style={{ fontSize: '28px', fontWeight: '800', margin: 0, fontFamily: 'var(--font-heading)' }}>
+                <div className="ext-header">
+                    <div style={{ flex: 1 }}>
+                        <h2 className="ext-header-title">
                             {activeTab === 'compiler' && 'Compiler'}
                             {activeTab === 'explore' && 'Discover Extensions'}
                             {activeTab === 'recommended' && 'Expert Picks'}
                             {activeTab === 'installed' && 'My Extensions'}
                         </h2>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
+                        <p className="ext-header-subtitle">
                             {activeTab === 'compiler' && 'Run and test your code directly.'}
-                            {activeTab === 'explore' && 'Power up your development with premium extensions.'}
-                            {activeTab === 'recommended' && 'Essential tools vetted for peak productivity.'}
+                            {activeTab === 'explore' && 'Power up your development.'}
+                            {activeTab === 'recommended' && 'Vetted for peak productivity.'}
                             {activeTab === 'installed' && 'Manage your IDE customizations.'}
                         </p>
                     </div>
@@ -444,20 +533,20 @@ const VSCodeApp = ({ onBack }) => {
                     {activeTab === 'compiler' && activeFile && (
                         <button
                             className="btn btn--primary glow-primary"
-                            style={{ padding: '12px 28px', borderRadius: '12px', fontSize: '15px', fontWeight: '600' }}
+                            style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', flexShrink: 0 }}
                             onClick={runActiveFile}
                             disabled={isExecuting}
                         >
-                            <FiPlay size={16} /> {isExecuting ? 'Running...' : 'Run Code'}
+                            <FiPlay size={14} /> {isExecuting ? 'Running...' : 'Run Code'}
                         </button>
                     )}
 
                     {activeTab === 'explore' && (
-                        <div style={{ position: 'relative', width: '320px' }}>
-                            <FiSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                        <div style={{ position: 'relative', width: '100%', maxWidth: '280px', flexShrink: 0 }}>
+                            <FiSearch style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 1 }} size={14} />
                             <input
                                 className="input"
-                                style={{ paddingLeft: '40px', paddingRight: searchQuery ? '40px' : '12px', height: '44px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)' }}
+                                style={{ paddingLeft: '32px', paddingRight: searchQuery ? '32px' : '10px', height: '36px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', fontSize: '12px' }}
                                 placeholder="Search extensions..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -465,9 +554,9 @@ const VSCodeApp = ({ onBack }) => {
                             {searchQuery && (
                                 <button
                                     onClick={() => setSearchQuery('')}
-                                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                                 >
-                                    <FiX size={16} />
+                                    <FiX size={14} />
                                 </button>
                             )}
                         </div>
@@ -475,7 +564,7 @@ const VSCodeApp = ({ onBack }) => {
 
                 </div>
 
-                <div style={{ flex: 1, overflowY: 'auto', padding: '40px' }} className="scrollbar-hide">
+                <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }} className="scrollbar-hide">
                     {/* Compiler Tab */}
                     {activeTab === 'compiler' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -594,33 +683,78 @@ const VSCodeApp = ({ onBack }) => {
 
                             {/* Installed Compilers Status */}
                             <div className="marketplace-card marketplace-card-glass animate-fade-in-up" style={{ padding: '24px' }}>
-                                <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <FiCpu size={18} color="var(--accent-primary)" /> Supported Languages
-                                </h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
-                                    {['Python', 'JavaScript', 'Java', 'C', 'C++', 'Go', 'Kotlin', 'C#', 'Ruby'].map(lang => (
-                                        <div key={lang} style={{
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                    <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <FiCpu size={18} color="var(--accent-primary)" /> Local Runtimes Status
+                                    </h3>
+                                    <button
+                                        className="btn btn--ghost"
+                                        onClick={fetchLanguages}
+                                        disabled={isLanguagesLoading}
+                                        style={{ padding: '4px 8px', fontSize: '11px', height: 'auto' }}
+                                    >
+                                        {isLanguagesLoading ? 'Refreshing...' : 'Refresh Status'}
+                                    </button>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' }}>
+                                    {(languages.length > 0 ? languages : [
+                                        { id: 'python', name: 'Python', available: false },
+                                        { id: 'javascript', name: 'JavaScript', available: false },
+                                        { id: 'java', name: 'Java', available: false },
+                                        { id: 'c', name: 'C', available: false },
+                                        { id: 'cpp', name: 'C++', available: false },
+                                        { id: 'go', name: 'Go', available: false },
+                                        { id: 'kotlin', name: 'Kotlin', available: false },
+                                        { id: 'csharp', name: 'C#', available: false },
+                                        { id: 'ruby', name: 'Ruby', available: false }
+                                    ]).map(lang => (
+                                        <div key={lang.id} style={{
                                             padding: '10px 14px',
                                             borderRadius: '8px',
                                             background: 'rgba(255,255,255,0.03)',
                                             border: '1px solid rgba(255,255,255,0.06)',
                                             display: 'flex',
                                             alignItems: 'center',
+                                            justifyContent: 'space-between',
                                             gap: '8px',
                                             fontSize: '13px',
                                             cursor: 'pointer',
                                             transition: 'all 0.2s'
                                         }}
-                                            onClick={() => testCompiler(lang)}
+                                            onClick={() => testCompiler(lang.name)}
                                             onMouseOver={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
                                             onMouseOut={(e) => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
                                         >
-                                            <span>{executorService.getLanguageIcon(lang.toLowerCase())}</span>
-                                            <span>{lang}</span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span>{executorService.getLanguageIcon(lang.id)}</span>
+                                                <span style={{ fontWeight: '500' }}>{lang.name}</span>
+                                            </div>
+                                            <div
+                                                title={lang.runtime_status || (lang.available ? 'Ready' : 'Missing')}
+                                                style={{
+                                                    width: '8px',
+                                                    height: '8px',
+                                                    borderRadius: '50%',
+                                                    background: lang.available ? (lang.type === 'system' ? '#3498db' : '#3fb950') : '#484f58',
+                                                    boxShadow: lang.available ? `0 0 8px ${lang.type === 'system' ? 'rgba(52, 152, 219, 0.4)' : 'rgba(63, 185, 80, 0.4)'}` : 'none'
+                                                }}
+                                            />
                                         </div>
                                     ))}
                                 </div>
+                                <div style={{ marginTop: '16px', fontSize: '11px', color: 'var(--text-muted)', display: 'flex', gap: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#3fb950' }} /> Portable Ready
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#3498db' }} /> System Path
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#484f58' }} /> Not Found
+                                    </div>
+                                </div>
                             </div>
+
                         </div>
                     )}
 
@@ -643,7 +777,7 @@ const VSCodeApp = ({ onBack }) => {
                         </div>
                     )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }} className="staggered-list">
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }} className="staggered-list">
                         {activeTab === 'explore' ? (
                             isLoading ? (
                                 <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '100px' }}>
@@ -688,10 +822,61 @@ const VSCodeApp = ({ onBack }) => {
             )}
 
             <style>{`
+                .marketplace-container {
+                    display: flex; flex-direction: column; height: 100%; overflow: hidden;
+                }
+                .ext-tab-bar {
+                    display: flex; align-items: center; gap: 8px;
+                    padding: 8px 12px; border-bottom: 1px solid var(--border-primary);
+                    background: var(--bg-secondary); flex-shrink: 0; flex-wrap: wrap;
+                }
+                .ext-tab-bar-left {
+                    display: flex; align-items: center; gap: 6px;
+                }
+                .ext-tab-bar-title {
+                    font-weight: 700; font-size: 14px; font-family: var(--font-heading);
+                }
+                .ext-tab-bar-tabs {
+                    display: flex; gap: 2px; flex: 1; flex-wrap: wrap;
+                }
+                .ext-tab {
+                    display: flex; align-items: center; gap: 4px;
+                    padding: 5px 10px; border-radius: 6px;
+                    background: transparent; border: none;
+                    color: var(--text-secondary); font-size: 12px;
+                    cursor: pointer; transition: all 0.15s; font-family: var(--font-body);
+                    white-space: nowrap;
+                }
+                .ext-tab:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+                .ext-tab--active {
+                    background: rgba(var(--accent-primary-rgb), 0.12);
+                    color: var(--accent-primary); font-weight: 600;
+                }
+                .ext-header {
+                    padding: 16px 16px 12px; border-bottom: 1px solid var(--border-primary);
+                    display: flex; justify-content: space-between; align-items: center;
+                    background: var(--bg-secondary); gap: 12px; flex-wrap: wrap; flex-shrink: 0;
+                }
+                .ext-header-title {
+                    font-size: 18px; font-weight: 700; margin: 0; font-family: var(--font-heading);
+                }
+                .ext-header-subtitle {
+                    color: var(--text-secondary); font-size: 12px; margin-top: 2px;
+                }
                 .marketplace-icon-box {
-                    width: 52px; height: 52px; border-radius: 12px;
+                    width: 44px; height: 44px; border-radius: 10px;
                     background: rgba(255,255,255,0.03); display: flex;
                     align-items: center; justify-content: center; overflow: hidden;
+                    flex-shrink: 0;
+                }
+                .marketplace-card {
+                    padding: 16px; border-radius: 12px;
+                    background: rgba(255,255,255,0.02); border: 1px solid var(--border-primary);
+                    transition: all 0.2s ease;
+                }
+                .marketplace-card:hover {
+                    border-color: rgba(var(--accent-primary-rgb), 0.3);
+                    background: rgba(var(--accent-primary-rgb), 0.03);
                 }
                 .scrollbar-hide::-webkit-scrollbar { display: none; }
                 .loader { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid var(--accent-primary); border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; margin: 0 auto; }

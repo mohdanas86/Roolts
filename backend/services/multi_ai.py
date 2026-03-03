@@ -16,6 +16,7 @@ import base64
 from services.async_deepseek_provider import AsyncDeepSeekProvider
 from services.ai_explainer import AIExplainerService
 from services.code_champ import CodeChampService
+from services.cache_service import response_cache
 
 
 class AIProvider(ABC):
@@ -94,7 +95,7 @@ class GeminiProvider(AIProvider):
                  'parts': [{'text': prompt}]
              })
              
-        payload = {'contents': contents}
+        payload = {'contents': contents, 'generationConfig': {'maxOutputTokens': 2048}}
         
         # Add system instruction if supported/provided
         # Inject standard system prompt for better code if not present
@@ -119,7 +120,7 @@ class GeminiProvider(AIProvider):
             }
         
         try:
-            response = requests.post(url, json=payload)
+            response = requests.post(url, json=payload, timeout=10)
             data = response.json()
             
             if 'candidates' in data and data['candidates']:
@@ -131,9 +132,10 @@ class GeminiProvider(AIProvider):
                 }
             
             error_msg = data.get('error', {}).get('message', 'Unknown error')
-            print(f">>> Gemini API Error: {error_msg}")
+            status_code = response.status_code
+            print(f">>> Gemini API Error ({status_code}): {error_msg}")
             print(f">>> Gemini API Full Response: {data}")
-            return {'error': error_msg}
+            return {'error': f'Gemini {status_code}: {error_msg}'}
         except Exception as e:
             return {'error': str(e)}
 
@@ -176,7 +178,7 @@ class ClaudeProvider(AIProvider):
 
         data = {
             'model': self.model,
-            'max_tokens': 4096,
+            'max_tokens': 2048,
             'messages': api_messages
         }
         
@@ -187,7 +189,8 @@ class ClaudeProvider(AIProvider):
             response = requests.post(
                 f"{self.base_url}/messages",
                 headers=headers,
-                json=data
+                json=data,
+                timeout=10
             )
             result = response.json()
             
@@ -205,6 +208,69 @@ class ClaudeProvider(AIProvider):
 
 
 
+class OpenAIProvider(AIProvider):
+    """OpenAI AI Provider."""
+    
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY', '')
+        self.base_url = 'https://api.openai.com/v1/chat/completions'
+        self.model = 'gpt-4o-mini'
+    
+    def is_configured(self) -> bool:
+        """Check if API key is configured and valid."""
+        if not self.api_key:
+            return False
+        if self.api_key.startswith('your-'):
+            return False
+        return len(self.api_key) > 5
+    
+    def generate(self, prompt: str, system_prompt: str = None, messages: list = None) -> Dict[str, Any]:
+        if not self.is_configured():
+            return {'error': 'OpenAI API key not configured'}
+        
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        api_messages = []
+        if system_prompt:
+            api_messages.append({'role': 'system', 'content': system_prompt})
+            
+        if messages:
+            for msg in messages:
+                if msg['role'] == 'system' and system_prompt: continue
+                api_messages.append({'role': msg['role'], 'content': msg['content']})
+        else:
+            api_messages.append({'role': 'user', 'content': prompt})
+
+        data = {
+            'model': self.model,
+            'messages': api_messages
+        }
+        
+        try:
+            response = requests.post(
+                self.base_url,
+                headers=headers,
+                json=data,
+                timeout=15
+            )
+            result = response.json()
+            
+            if 'choices' in result and result['choices']:
+                text = result['choices'][0]['message']['content']
+                return {
+                    'response': text,
+                    'model': 'openai',
+                    'provider': 'OpenAI'
+                }
+            
+            error_msg = result.get('error', {}).get('message', 'Unknown error')
+            status_code = response.status_code
+            return {'error': f'OpenAI {status_code}: {error_msg}'}
+        except Exception as e:
+            return {'error': str(e)}
 
 
 class QwenProvider(AIProvider):
@@ -254,7 +320,8 @@ class QwenProvider(AIProvider):
             response = requests.post(
                 self.base_url,
                 headers=headers,
-                json=data
+                json=data,
+                timeout=10
             )
             result = response.json()
             
@@ -366,7 +433,7 @@ class HuggingFaceProvider(AIProvider):
                 payload = {
                     "model": target_model,
                     "messages": hf_messages,
-                    "max_tokens": 2048,
+                    "max_tokens": 1024,
                     "temperature": 0.1,
                     "top_p": 0.95,
                     "stream": False
@@ -376,7 +443,7 @@ class HuggingFaceProvider(AIProvider):
                     url,
                     headers={"Authorization": f"Bearer {self.api_key}"},
                     json=payload,
-                    timeout=90
+                    timeout=10
                 )
                 
                 if response.status_code == 200:
@@ -416,34 +483,6 @@ class HuggingFaceProvider(AIProvider):
             return {'error': str(e)}
 
 
-class MockProvider(AIProvider):
-    """
-    Mock AI Provider - Always available.
-    Provides helpful instructions when no real API keys are configured.
-    """
-    def is_configured(self) -> bool:
-        return True
-    
-    def generate(self, prompt: str, system_prompt: str = None, messages: list = None) -> Dict[str, Any]:
-        content = (
-            "### 🔐 AI Setup Required\n\n"
-            "The AI assistant is running in **offline mode** because no API keys are configured on this server.\n\n"
-            "**How to enable AI:**\n\n"
-            "**Option 1 — Server Admin (recommended for shared access):**\n"
-            "```bash\n"
-            "cd backend/scripts\n"
-            "python vault_tool.py add gemini YOUR_GEMINI_KEY\n"
-            "# Then restart the server\n"
-            "```\n\n"
-            "**Option 2 — Personal Key (just for you):**\n"
-            "Click the ⚙️ Settings icon in the AI panel and enter your own API key.\n\n"
-            "> **Tip:** Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com/apikey)"
-        )
-        return {
-            'response': content,
-            'model': 'mock',
-            'provider': 'System (Mock)'
-        }
 
 
 class AISelector:
@@ -502,7 +541,7 @@ class AISelector:
         """
         Initialize with available models.
         """
-        self.available = available_models if available_models is not None else ['gemini', 'claude', 'deepseek', 'qwen', 'huggingface', 'pollinations']
+        self.available = available_models if available_models is not None else ['openai', 'gemini', 'claude', 'deepseek', 'qwen', 'huggingface', 'pollinations']
     
     def _count_keyword_matches(self, text: str, keywords: list) -> int:
         """Count how many keywords appear in the text as whole words."""
@@ -524,6 +563,7 @@ class AISelector:
     def _calculate_scores(self, prompt: str) -> Dict[str, float]:
         """Calculate suitability scores for each model."""
         scores = {
+            'openai': 0.0,
             'deepseek': 0.0,
             'huggingface': 0.0,
             'claude': 0.0,
@@ -535,8 +575,12 @@ class AISelector:
         prompt_lower = prompt.lower()
         prompt_length = len(prompt)
         
-        # Base score for Pollinations (it's free and always available)
-        scores['pollinations'] = 5.0
+        # Base score for Pollinations (PREFERRED - free, always available, reliable)
+        scores['pollinations'] = 15.0
+        
+        # === OpenAI: General capabilities ===
+        # Very solid baseline score if configured
+        scores['openai'] += 7.0
         
         # === Gemini: Speed and General Knowledge (Default for speed) ===
         # Boost Gemini significantly to make it the default fast model
@@ -549,21 +593,23 @@ class AISelector:
             scores['huggingface'] += reasoning_matches * 4.0 
             scores['deepseek'] += reasoning_matches * 4.0
             
-        # Coding: User preference for DeepSeek/HF. 
-        # Boost these significantly for code, but keep the prompt streamlined for speed.
+        # Coding: Pollinations still preferred for code, with DeepSeek/HF as alternatives
         code_matches = self._count_keyword_matches(prompt, self.CODE_KEYWORDS)
         if code_matches > 0:
+            scores['pollinations'] += code_matches * 3.0  # Keep Pollinations ahead for code too
             scores['huggingface'] += code_matches * 8.0
             scores['deepseek'] += code_matches * 10.0
-            scores['pollinations'] += code_matches * 2.0 # Good fallback
+            scores['openai'] += code_matches * 9.0
             # Gemini is fallback/speed backup but not first choice for code now
             scores['gemini'] -= 2.0
         
         # Check for code blocks
         if '```' in prompt or 'def ' in prompt or 'function ' in prompt or 'class ' in prompt:
-            scores['huggingface'] += 20.0
-            scores['deepseek'] += 25.0
-            scores['gemini'] -= 5.0
+            # Toned down from 20/25 to 10/12 to prevent over-switching for simple chats
+            scores['huggingface'] += 10.0
+            scores['deepseek'] += 12.0
+            scores['openai'] += 11.0
+            scores['gemini'] += 2.0 # Keep Gemini neutral for code, don't penalize it
 
         # === Claude: Writing and nuanced analysis ===
         writing_matches = self._count_keyword_matches(prompt, self.WRITING_KEYWORDS)
@@ -598,10 +644,14 @@ class AISelector:
     def select_best_model(self, prompt: str) -> str:
         """
         Select the best AI model for the given prompt based on scores.
-        Prefers DeepSeek for coding, Gemini for speed/general, with smart fallback.
+        ALWAYS prefers Pollinations as the default provider.
         """
         if not self.available:
             raise ValueError("No AI models available")
+        
+        # Always prefer Pollinations when it's available (free, reliable, no key needed)
+        if 'pollinations' in self.available:
+            return 'pollinations'
         
         scores = self._calculate_scores(prompt)
         
@@ -625,7 +675,7 @@ class AISelector:
             'claude': 'Anthropic Claude: Specialized in nuanced text analysis',
             'gemini': 'Google Gemini: Optimized for speed and general knowledge',
             'qwen': 'Alibaba Qwen: Expert at multilingual content',
-            'pollinations': 'Standard AI: Free fallback model'
+            'pollinations': 'Pollinations AI: Preferred default provider (free, reliable)',
         }
         
         is_primary = selected in ['huggingface', 'deepseek']
@@ -642,61 +692,155 @@ class AISelector:
 
 class PollinationsProvider(AIProvider):
     """
-    Pollinations.ai Provider - Free, no-key AI service.
-    Serves as the default fallback when no keys are configured.
+    Pollinations.ai Provider - Free (with API key), no-cost AI service.
+    Uses the OpenAI-compatible endpoint at gen.pollinations.ai.
+    Serves as the PREFERRED default provider.
+
+    Available models (check https://text.pollinations.ai/models for current list):
+        - openai / openai-fast  : GPT-OSS 20B Reasoning LLM (OVH) - primary model
+
+    API key: Obtain at https://enter.pollinations.ai
+    Set via env var: POLLINATIONS_API_KEY=sk_...
     """
-    def __init__(self):
-        self.base_url = "https://text.pollinations.ai/"
-        self.model = "openai" # Changed to 'openai' for better stability
+    def __init__(self, model: str = None, json_mode: bool = False, api_key: str = None):
+        self.base_url = "https://gen.pollinations.ai/v1/chat/completions"
+        # openai-fast is the primary model alias (also aliased as 'openai')
+        self.model = model or os.getenv('POLLINATIONS_MODEL', 'openai-fast')
+        self.json_mode = json_mode
+        # API key passed explicitly (e.g. from vault) takes priority over env var
+        self._explicit_api_key = api_key
+
+    def _get_api_key(self) -> str:
+        """Lazy-load API key: explicit param > env var. Checked on every call so hot-reloads work."""
+        return self._explicit_api_key or os.getenv('POLLINATIONS_API_KEY', '')
 
     def is_configured(self) -> bool:
-        return True # Always available
+        return True  # Always available even without API key (anonymous tier)
     
-    def generate(self, prompt: str, system_prompt: str = None, messages: list = None) -> Dict[str, Any]:
+    def generate(self, prompt: str, system_prompt: str = None, messages: list = None, json_mode: bool = None) -> Dict[str, Any]:
+        import time
+        use_json_mode = json_mode if json_mode is not None else self.json_mode
         try:
-            # Pollinations accepts strict string input for simplest usage, 
-            # or we can construct a prompt with history.
+            # Truncate large payloads to stay within limits
+            max_total_chars = 12000
+            payload_messages = []
             
-            # Using POST for robustness
+            if messages:
+                current_chars = 0
+                for msg in reversed(messages):
+                    content = msg.get('content', '')
+                    role = msg.get('role', 'user')
+                    
+                    if current_chars + len(content) > max_total_chars:
+                        if len(payload_messages) == 0:
+                            half = max_total_chars // 2
+                            content = content[:half] + "\n\n...[TRUNCATED]...\n\n" + content[-half:]
+                            payload_messages.insert(0, {'role': role, 'content': content})
+                            current_chars += len(content)
+                        else:
+                            continue
+                    else:
+                        payload_messages.insert(0, {'role': role, 'content': content})
+                        current_chars += len(content)
+            else:
+                content = prompt
+                if len(content) > max_total_chars:
+                    half = max_total_chars // 2
+                    content = content[:half] + "\n\n...[TRUNCATED]...\n\n" + content[-half:]
+                payload_messages.append({'role': 'user', 'content': content})
+                
+            if system_prompt:
+                payload_messages.insert(0, {'role': 'system', 'content': system_prompt})
+
+            # OpenAI-compatible payload
             payload = {
-                'messages': messages if messages else [{'role': 'user', 'content': prompt}],
                 'model': self.model,
-                'jsonMode': False 
+                'messages': payload_messages,
             }
             
-            if system_prompt:
-                payload['system'] = system_prompt
+            # JSON mode: instructs the model to return valid JSON only
+            if use_json_mode:
+                payload['response_format'] = {'type': 'json_object'}
 
-            response = requests.post(
-                f"{self.base_url}", 
-                headers={'Content-Type': 'application/json'},
-                json=payload,
-                timeout=60
-            )
+            # Build headers — resolve key lazily so vault changes are picked up without restart
+            api_key = self._get_api_key()
+            headers = {'Content-Type': 'application/json'}
+            if api_key:
+                headers['Authorization'] = f'Bearer {api_key}'
+
+            last_error_text = ""
+            last_status = 0
             
-            if response.status_code == 200:
-                return {
-                    'response': response.text,
-                    'model': 'pollinations',
-                    'provider': 'Standard AI'
-                }
+            for attempt in range(3):
+                try:
+                    response = requests.post(
+                        self.base_url, 
+                        headers=headers,
+                        json=payload,
+                        timeout=60  # Generous timeout for free tier
+                    )
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            # OpenAI-compatible response format
+                            text = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+                            if text:
+                                return {
+                                    'response': text,
+                                    'model': 'pollinations',
+                                    'provider': f'Pollinations AI ({self.model})'
+                                }
+                            else:
+                                # If JSON parsed but no content, use raw text
+                                raw = response.text.strip()
+                                if raw:
+                                    return {
+                                        'response': raw,
+                                        'model': 'pollinations',
+                                        'provider': f'Pollinations AI ({self.model})'
+                                    }
+                        except (ValueError, KeyError, IndexError):
+                            # If response is plain text (not JSON), use it directly
+                            if response.text and len(response.text.strip()) > 10:
+                                return {
+                                    'response': response.text.strip(),
+                                    'model': 'pollinations',
+                                    'provider': f'Pollinations AI ({self.model})'
+                                }
+                        
+                    last_status = response.status_code
+                    last_error_text = response.text[:500]
+                    print(f"[Pollinations] Attempt {attempt+1} failed: {last_status} - {last_error_text[:200]}")
+                    
+                    # Only retry on server errors
+                    if response.status_code >= 500 and attempt < 2:
+                        time.sleep(2 ** (attempt + 1))
+                        continue
+                    else:
+                        break
+                except requests.exceptions.Timeout:
+                    last_error_text = f"Timeout on attempt {attempt+1}"
+                    print(f"[Pollinations] {last_error_text}")
+                    if attempt < 2:
+                        time.sleep(2)
+                        continue
+                    break
             
-            # Fallback to GET if POST fails (only for short prompts)
-            if len(prompt) < 1000:
-                response = requests.get(f"{self.base_url}{requests.utils.quote(prompt)}")
-                if response.status_code == 200:
-                     return {
-                        'response': response.text,
-                        'model': 'pollinations',
-                        'provider': 'Standard AI'
-                    }
-            
-            print(f"Pollinations Error: {response.status_code} - {response.text}")
-            return {'error': f"Pollinations Error {response.status_code}: {response.text}"}
+            print(f"Pollinations Error: {last_status} - {last_error_text}")
+            return {
+                'error': f"Pollinations AI returned {last_status}: {last_error_text}",
+                'model': 'pollinations',
+                'provider': 'Pollinations AI'
+            }
 
         except Exception as e:
             print(f"Pollinations Exception: {e}")
-            return {'error': str(e)}
+            return {
+                'error': f"Pollinations AI network error: {str(e)}",
+                'model': 'pollinations',
+                'provider': 'Pollinations AI'
+            }
 
 class MockProvider(AIProvider):
     """
@@ -708,44 +852,40 @@ class MockProvider(AIProvider):
     
     def generate(self, prompt: str, system_prompt: str = None, messages: list = None) -> Dict[str, Any]:
         content = (
-            "### ⚠️ AI Connection Failed\n\n"
-            "The AI assistant is unable to connect to **Standard AI** (Free Provider).\n\n"
-            "**Diagnostics:**\n"
-            "- Standard AI: Failed to respond.\n"
-            "- API Keys: None configured (using fallback).\n\n"
+            "### 🔐 AI Setup Required\n\n"
+            "The AI assistant is running in **offline mode** because no API keys are configured on this server, "
+            "and the free fallback service is currently unavailable.\n\n"
             "**How to enable AI:**\n\n"
-            "**Option 1 — Retry:**\n"
-            "Please try again in a moment. Pollinations might be busy.\n\n"
-            "**Option 2 — Add Personal Key (Recommended):**\n"
-            "Click the ⚙️ Settings icon in the AI panel and enter a **Gemini** or **Claude** API key.\n"
+            "1. **Option 1 — Personal Key (private):** Click the ⚙️ Settings icon in the AI panel and enter your own API key.\n"
+            "2. **Option 2 — Server Admin:** Add keys to the server vault using `vault_tool.py`.\n\n"
+            "> **Tip:** Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com/apikey)"
         )
         return {
             'response': content,
             'model': 'mock',
-            'provider': 'System (Network Error)'
+            'is_mock': True,
+            'provider': 'System (Offline)'
         }
         
 
 class MultiAIService:
-    """
-    Unified service for interacting with multiple AI providers.
-    Supports automatic model selection or manual override.
-    Asynchronous implementation.
-    """
+    """Entry point for AI generation with automatic failover."""
     
     def __init__(self, user_api_keys: Dict[str, str] = None):
         """
-        Initialize the Multi-AI service.
+        Initialize with optional user API keys (maps provider_name -> api_key)
         """
         user_api_keys = user_api_keys or {}
+        print(f"[AI] Initializing MultiAIService with keys: {list(user_api_keys.keys())}")
         
         # Initialize Providers
         self.providers = {
+            'openai': OpenAIProvider(user_api_keys.get('openai')),
             'gemini': GeminiProvider(user_api_keys.get('gemini')),
             'claude': ClaudeProvider(user_api_keys.get('claude')),
             'qwen': QwenProvider(user_api_keys.get('qwen')),
             'huggingface': HuggingFaceProvider(user_api_keys.get('huggingface') or user_api_keys.get('hf_token')),
-            'pollinations': PollinationsProvider(),
+            'pollinations': PollinationsProvider(api_key=user_api_keys.get('pollinations_api_key') or user_api_keys.get('pollinations')),
             'mock': MockProvider()
         }
         
@@ -769,38 +909,53 @@ class MultiAIService:
             return await self.chat(prompt, model='deepseek', system_prompt=system_prompt)
             
         async def code_champ_callback(prompt, system_prompt):
-            # CodeChamp works best with DeepSeek but can fallback to others via 'auto' or 'huggingface'
-            # We try deepseek first (it's the best for structural JSON), but multi_ai.chat will handle the fallback
+            # CodeChamp needs deterministic JSON output. Pollinations with openai-large
+            # is free, always-on, and reliably returns structured JSON.
+            # We try Pollinations (JSON mode) first, then fall back through 'auto'.
+            pollinations = self.providers.get('pollinations')
+            if pollinations and pollinations.is_configured():
+                try:
+                    loop = asyncio.get_running_loop()
+                    result = await loop.run_in_executor(
+                        None,
+                        lambda: pollinations.generate(prompt, system_prompt, json_mode=True)
+                    )
+                    if 'error' not in result:
+                        return result
+                    print(f"[CodeChamp] Pollinations JSON mode failed: {result.get('error')}, falling back to auto")
+                except Exception as e:
+                    print(f"[CodeChamp] Pollinations exception: {e}, falling back to auto")
+            # Fallback: use auto-routing (DeepSeek, HF, etc.)
             return await self.chat(prompt, model='auto', system_prompt=system_prompt)
             
         self.explainer = AIExplainerService(explainer_callback)
         self.code_champ = CodeChampService(code_champ_callback)
 
-    def _strip_thinking_tags(self, text: str) -> str:
-        """Removes <think>...</think> blocks from the text."""
+    def _strip_thinking_tags(self, text: str) -> tuple[str, str]:
+        """Removes <think>...</think> blocks from the text and returns (stripped_text, reasoning_content)."""
         if not text:
-            return text
+            return text, ""
         
         # Keep a copy of the original text
         original_text = text
         
+        # Extract reasoning content
+        reasoning = ""
+        thinking_match = re.search(r'<think>(.*?)</think>', original_text, flags=re.DOTALL)
+        if thinking_match:
+            reasoning = thinking_match.group(1).strip()
+            
         # Remove <think>...</think> and any whitespace around it
         text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
         
         stripped = text.strip()
         
         # If stripping leaves us with nothing, but there was reasoning before
-        # We might want to keep the reasoning or show a placeholder
-        if not stripped and '<think>' in original_text:
-            # Instead of returning nothing, we can extract the thinking content 
-            # and present it as the content if that's all we have
-            thinking_match = re.search(r'<think>(.*?)</think>', original_text, flags=re.DOTALL)
-            if thinking_match:
-                content = thinking_match.group(1).strip()
-                if content:
-                    return f"> *Internal Reasoning fallback:*\n\n{content}"
+        # We might want to keep the reasoning or show a placeholder in the content
+        if not stripped and reasoning:
+            return f"> *Internal Reasoning fallback:*\n\n{reasoning}", reasoning
         
-        return stripped
+        return stripped, reasoning
     
     def get_available_models(self) -> list:
         """
@@ -826,6 +981,16 @@ class MultiAIService:
         """Send a message to an AI model asynchronously."""
         if not prompt and (not messages or len(messages) == 0):
             return {'error': 'Prompt or messages required'}
+        
+        # --- Response caching (1-hour TTL) ---
+        # Build a cache key from (prompt, model, system_prompt)
+        prompt_for_key = prompt[:500] if prompt else ''
+        sp_for_key = (system_prompt or '')[:200]
+        cache_key = response_cache._generate_key('chat-v1', prompt_for_key, model, sp_for_key)
+        cached = response_cache.get(cache_key)
+        if cached:
+            cached['from_cache'] = True
+            return cached
         
         # Auto-select model if not specified
         if model == 'auto':
@@ -863,6 +1028,7 @@ class MultiAIService:
                     'warning': f'Model {model} is not configured (missing API key)',
                     'response': self.providers['mock'].generate(prompt)['response'],
                     'model': 'mock',
+                    'is_mock': True,
                     'provider': 'System (Mock)'
                 }
         
@@ -882,53 +1048,98 @@ class MultiAIService:
             # Fallback Logic
             if 'error' in result:
                 error_msg = str(result['error'])
+                error_lower = error_msg.lower()
                 print(f">>> Primary Model ({model}) failed: {error_msg}")
                 
-                # Check for recoverable errors (Balance, Rate Limit, Server Error, Auth)
-                # Basically try fallback for almost anything except maybe invalid prompt
-                should_fallback = any(x in error_msg for x in [
-                    'Insufficient Balance', '402', '429', '500', '503', 'Overloaded',
-                    'Connection error', 'rate limit', '401', 'Authentication', 'not configured',
-                    'RemoteDisconnected', 'Connection aborted', 'timeout', 'timed out', 'ProtocolError'
-                ])
+                # Check for recoverable errors (Balance, Rate Limit, Server Error)
+                recoverable_patterns = [
+                    'insufficient balance', '402', '429', '500', '502', '503', '504', 'overloaded',
+                    'connection error', 'rate limit', 'rate_limit',
+                    'remotedisconnected', 'connection aborted', 'timeout', 'timed out', 'protocolerror',
+                    'server error', 'service unavailable', 'bad gateway'
+                ]
+                should_fallback = any(x in error_lower for x in recoverable_patterns)
                 
-                # Also fallback if we just have a generic "error" and a fallback is available
+                # Auth error patterns (case-insensitive)
+                auth_patterns = [
+                    '401', '403', 'authentication', 'not configured', 'invalid api key', 'invalid_api_key',
+                    'incorrect api key', 'incorrect key', 'forbidden', 'unauthorized',
+                    'api key not valid', 'invalid key', 'expired', 'permission denied',
+                    'invalid x-goog-api-key', 'api_key_invalid', 'invalid auth'
+                ]
+                is_auth_error = any(x in error_lower for x in auth_patterns)
+                
+                if auto_selected:
+                    # Auto mode: always fallback on auth errors (key might just be missing for this model)
+                    should_fallback = should_fallback or is_auth_error
+                else:
+                    # Explicit model selected by user. Show them the auth error.
+                    if is_auth_error:
+                        should_fallback = False
+                
                 if should_fallback:
                     available = self.get_available_models()
-                    remaining = [m for m in available if m != model]
-                    if 'mock' not in remaining and model != 'mock':
-                        remaining.append('mock')
-                    fallback_model = 'huggingface' if 'huggingface' in remaining and 'huggingface' != 'mock' else (remaining[0] if remaining else None)
+                    remaining = [m for m in available if m != model and m != 'mock']
                     
-                    if fallback_model:
-                        print(f">>> Attempting fallback to {fallback_model}...")
+                    # Prefer Pollinations and Gemini as fallback (most reliable)
+                    preferred_order = ['pollinations', 'gemini', 'huggingface', 'openai', 'deepseek', 'claude', 'qwen']
+                    remaining.sort(key=lambda m: preferred_order.index(m) if m in preferred_order else 99)
+                    
+                    # Always append mock as the absolute last resort
+                    remaining.append('mock')
+                    
+                    print(f">>> [DEBUG] Fallback array: {remaining}")
+                    debug_traces = []
+                    
+                    for fallback_model in remaining:
+                        debug_traces.append(f"Attempting {fallback_model}...")
                         fallback_provider = self.providers[fallback_model]
                         if fallback_model == 'deepseek':
-                            result = await fallback_provider.generate_async(prompt, system_prompt, messages)
+                            fallback_result = await fallback_provider.generate_async(prompt, system_prompt, messages)
                         else:
                             loop = asyncio.get_running_loop()
-                            result = await loop.run_in_executor(
+                            fallback_result = await loop.run_in_executor(
                                 None, 
                                 lambda: fallback_provider.generate(prompt, system_prompt, messages)
                             )
                             
-                        if 'error' not in result:
-                            result['fallback_used'] = True
-                            result['original_model'] = model
-                            result['model'] = fallback_model
-                            result['warning'] = f"Original model {model} failed: {error_msg}"
-
+                        if 'error' not in fallback_result:
+                            fallback_result['fallback_used'] = True
+                            fallback_result['original_model'] = model
+                            fallback_result['model'] = fallback_model
+                            # Use exact warning format needed for UI awareness but ensure no error key
+                            fallback_result['warning'] = f"Original model {model} failed: {error_msg}"
+                            
+                            if fallback_model == 'mock':
+                                fallback_result['is_mock'] = True
+                                fallback_result['debug_traces'] = debug_traces
+                            
+                            result = fallback_result
+                            break
+                        else:
+                            debug_traces.append(f"{fallback_model} failed: {fallback_result.get('error')}")
+                            
+            print(f">>> [DEBUG] Final result model: {result.get('model')}")
             # Metadata
             if 'error' not in result:
                 if 'response' in result and 'content' not in result:
                     result['content'] = result['response']
                 
-                # Strip thinking if requested
-                if hide_thinking:
-                    if 'content' in result:
-                        result['content'] = self._strip_thinking_tags(result['content'])
-                    if 'response' in result:
-                        result['response'] = self._strip_thinking_tags(result['response'])
+                # Strip thinking and parse reasoning
+                if 'content' in result:
+                    stripped_content, extracted_reasoning = self._strip_thinking_tags(result['content'])
+                    if hide_thinking:
+                        result['content'] = stripped_content
+                    # Always save extracted reasoning if it exists and wasn't natively provided
+                    if extracted_reasoning and not result.get('reasoning'):
+                        result['reasoning'] = extracted_reasoning
+                        
+                if 'response' in result:
+                    stripped_response, extracted_reasoning_resp = self._strip_thinking_tags(result['response'])
+                    if hide_thinking:
+                        result['response'] = stripped_response
+                    if extracted_reasoning_resp and not result.get('reasoning'):
+                        result['reasoning'] = extracted_reasoning_resp
 
                 if 'content' in result and not result['content'].strip() and result.get('reasoning'):
                      # Fallback to reasoning if content is empty
@@ -938,6 +1149,10 @@ class MultiAIService:
                 if selection:
                     result['all_scores'] = selection['scores']
                     result['selection_id'] = selection.get('selected_model')
+                
+                # Cache the successful result (1 hour TTL) - DO NOT cache mock failures
+                if result.get('model') != 'mock':
+                    response_cache.set(cache_key, result, ttl=3600)
             
             return result
 

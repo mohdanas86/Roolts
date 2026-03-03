@@ -1,0 +1,33 @@
+{
+	"$schema": "vscode://schemas/color-theme",
+	"name": "Dark- (Visual Studio) (Flat UI)",
+	"include": "./Dark-.color-theme.json",
+	"colors": {
+		// Flattens the UI (based on "Dark (Visual Studio)" workbench colors):
+		"activityBar.background": "#252526",
+		"editor.lineHighlightBackground": "#252526",
+		"editorGroupHeader.noTabsBackground": "#252526",
+		"editorWidget.background": "#1e1e1e",
+		"listFilterWidget.background": "#252526",
+		"panel.background": "#252526",
+		"quickInput.background": "#252526",
+		"sideBarSectionHeader.background": "#252526",
+		"tab.inactiveBackground": "#252526",
+		"titleBar.activeBackground": "#252526",
+
+		// Terminal darker than default:
+		"terminal.background": "#0f0f0f",
+
+		// Few borders to improve readability:
+		"editorGroup.border": "#454545",
+		"panel.border": "#454545",
+		"sideBarSectionHeader.border": "#454545",
+
+		// Active/accent colors:
+		"badge.background": "#0e639c",
+		"panelTitle.activeBorder": "#0098ff",
+		"terminal.tab.activeBorder": "#0098ff",
+		"tab.activeBorderTop": "#0098ff",
+		"tab.unfocusedActiveBorderTop": "#454545",
+	}
+}

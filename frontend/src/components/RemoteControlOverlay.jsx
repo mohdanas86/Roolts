@@ -180,7 +180,8 @@ const RemoteControlOverlay = ({ isController, isBeingControlled, onControlEnd })
                         transform: 'translate(-2px, -2px)',
                         pointerEvents: 'none',
                         zIndex: 99999,
-                        transition: 'left 0.05s, top 0.05s'
+                        // Add linear interpolation so it smoothly glides between the 30ms updates
+                        transition: 'left 0.1s linear, top 0.1s linear'
                     }}
                 >
                     <div style={{
@@ -229,26 +230,40 @@ const RemoteControlOverlay = ({ isController, isBeingControlled, onControlEnd })
                 </div>
             )}
 
-            {/* Controller mode overlay hint */}
             {isController && (
                 <div style={{
                     position: 'fixed',
-                    bottom: '20px',
+                    bottom: '30px',
                     left: '50%',
                     transform: 'translateX(-50%)',
-                    backgroundColor: 'rgba(46, 204, 113, 0.9)',
+                    background: 'linear-gradient(135deg, rgba(46, 204, 113, 0.95), rgba(39, 174, 96, 0.95))',
+                    backdropFilter: 'blur(8px)',
+                    WebkitBackdropFilter: 'blur(8px)',
                     color: 'white',
-                    padding: '8px 16px',
-                    borderRadius: '20px',
-                    fontSize: '12px',
+                    padding: '10px 24px',
+                    borderRadius: '30px',
+                    fontSize: '14px',
+                    fontWeight: '600',
                     zIndex: 99999,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.3)'
+                    gap: '12px',
+                    boxShadow: '0 8px 32px rgba(46, 204, 113, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    animation: 'slideUp 0.3s ease-out'
                 }}>
-                    <FiMousePointer size={14} />
-                    Controlling remote screen • Press ESC to stop
+                    <FiMousePointer size={16} />
+                    Controlling remote screen
+                    <div style={{
+                        marginLeft: '8px',
+                        padding: '4px 8px',
+                        background: 'rgba(0,0,0,0.2)',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        letterSpacing: '0.5px'
+                    }}>
+                        Press ESC to stop
+                    </div>
                 </div>
             )}
 
@@ -256,6 +271,10 @@ const RemoteControlOverlay = ({ isController, isBeingControlled, onControlEnd })
                 @keyframes ripple {
                     0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
                     100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+                }
+                @keyframes slideUp {
+                    from { transform: translate(-50%, 20px); opacity: 0; }
+                    to { transform: translate(-50%, 0); opacity: 1; }
                 }
             `}</style>
         </>

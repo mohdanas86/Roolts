@@ -144,17 +144,19 @@ const ExtensionsPanel = () => {
     };
 
     const expertPicks = [
-        { namespace: 'ms-python', name: 'python', displayName: 'Python', description: 'IntelliSense (Pylance), Linting, Debugging (multi-threaded, remote), Jupyter Notebooks, code formatting, refactoring, unit tests, and more.', icon: 'https://raw.githubusercontent.com/microsoft/vscode-python/main/icon.png' },
+        { namespace: 'ms-python', name: 'python', displayName: 'Python', description: 'IntelliSense (Pylance), Linting, Debugging, code formatting, and more.', icon: 'https://raw.githubusercontent.com/microsoft/vscode-python/main/icon.png' },
         { namespace: 'ms-vscode', name: 'cpptools', displayName: 'C/C++', description: 'C/C++ IntelliSense, debugging, and code browsing.', icon: 'https://raw.githubusercontent.com/microsoft/vscode-cpptools/main/Extension/icon.png' },
         { namespace: 'golang', name: 'Go', displayName: 'Go', description: 'Rich Go language support for Visual Studio Code.', icon: 'https://raw.githubusercontent.com/golang/vscode-go/master/images/go-logo.png' },
-        { namespace: 'esbenp', name: 'prettier-vscode', displayName: 'Prettier', description: 'Code formatter using prettier', icon: 'https://raw.githubusercontent.com/prettier/prettier-vscode/main/images/icon.png' },
-        { namespace: 'dracula-theme', name: 'theme-dracula', displayName: 'Dracula Official', description: 'Official Dracula Theme. A dark theme for many editors, shells, and more.', icon: 'https://raw.githubusercontent.com/dracula/visual-studio-code/master/icon.png' }
+        { namespace: 'dracula-theme', name: 'theme-dracula', displayName: 'Dracula Official', description: 'Official Dracula Theme. A dark theme for many editors, shells, and more.', icon: 'https://raw.githubusercontent.com/dracula/visual-studio-code/master/icon.png' },
+        { namespace: 'rust-lang', name: 'rust-analyzer', displayName: 'rust-analyzer', description: 'Rust language support: code completion, goto definition, and more.', icon: '' },
+        { namespace: 'vscjava', name: 'vscode-java-pack', displayName: 'Extension Pack for Java', description: 'Popular extensions for Java development that provides code navigation, auto-completion, refactoring, and snippets.', icon: 'https://raw.githubusercontent.com/microsoft/vscode-java-pack/main/icon.png' }
     ];
 
     // Dummy recommended for now
     const recommended = [
         { namespace: 'dbaeumer', name: 'vscode-eslint', displayName: 'ESLint', description: 'Integrates ESLint JavaScript into VS Code.', icon: 'https://raw.githubusercontent.com/microsoft/vscode-eslint/main/images/icon.png' },
-        { namespace: 'VisualStudioExptTeam', name: 'vscodeintellij', displayName: 'IntelliJ IDEA Keybindings', description: 'Port of IntelliJ IDEA keybindings config', icon: '' }
+        { namespace: 'oderwat', name: 'indent-rainbow', displayName: 'Indent Rainbow', description: 'Makes indentation easier to read by colorizing each indent level.', icon: '' },
+        { namespace: 'PKief', name: 'material-icon-theme', displayName: 'Material Icon Theme', description: 'Material Design Icons for Visual Studio Code file explorer.', icon: '' }
     ];
 
     const installExpertPick = async (pick) => {
@@ -502,6 +504,24 @@ const ExtensionsPanel = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                     <FiBox size={20} style={{ color: '#0098FF' }} />
                     <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#fff' }}>Extensions Marketplace</h2>
+                </div>
+
+                <div style={{
+                    padding: '10px 14px',
+                    background: 'rgba(59, 130, 246, 0.1)',
+                    border: '1px solid rgba(59, 130, 246, 0.2)',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    color: 'rgba(255,255,255,0.8)',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '8px'
+                }}>
+                    <FiAlertCircle size={14} style={{ color: '#0098FF', flexShrink: 0, marginTop: '2px' }} />
+                    <span style={{ lineHeight: '1.4' }}>
+                        CodeChamp runs natively in the browser. <strong>Only Themes, Snippets, and supported Language Servers (LSP)</strong> will be applied upon installation. Complex extensions requiring Node.js APIs will not function.
+                    </span>
                 </div>
 
                 {/* Tab Navigation */}

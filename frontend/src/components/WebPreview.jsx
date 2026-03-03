@@ -1,18 +1,28 @@
 import React, { useEffect, useState } from 'react';
 import { FiX } from 'react-icons/fi';
+import { useFileStore } from '../store';
 
-const WebPreview = ({ files, activeFileId, onClose }) => {
+const WebPreview = ({ onClose }) => {
+    const activeFileId = useFileStore(state => state.activeFileId);
+    const activeFile = useFileStore(state => state.files.find(f => f.id === activeFileId), (a, b) => a?.content === b?.content && a?.id === b?.id);
+    const filesCount = useFileStore(state => state.files.length);
+    const cssFingerprint = useFileStore(state =>
+        state.files.filter(f => f.name.endsWith('.css')).map(f => f.id + f.modified).join(','),
+        (a, b) => a === b
+    );
+    const files = useFileStore(state => state.files); // Still needed for resource resolution but watched more carefully
+
     const [srcDoc, setSrcDoc] = useState('');
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
+        if (!activeFile) return;
         setIsLoading(true);
-        // Small timeout to allow UI to show loading state
         const timer = setTimeout(() => {
             generatePreview();
         }, 100);
         return () => clearTimeout(timer);
-    }, [files, activeFileId]);
+    }, [activeFile?.content, activeFile?.id, cssFingerprint, filesCount]);
 
     const generatePreview = () => {
         const activeFile = files.find(f => f.id === activeFileId);

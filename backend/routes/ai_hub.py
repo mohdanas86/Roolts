@@ -20,6 +20,7 @@ def get_user_ai_service(api_key=None, provider=None):
     # 1. Base from Environment
     raw_deepseek = os.getenv('DEEPSEEK_API_KEY')
     env_keys = {
+        'openai': os.getenv('OPENAI_API_KEY'),
         'gemini': os.getenv('GEMINI_API_KEY'),
         'claude': os.getenv('CLAUDE_API_KEY'),
         'deepseek': raw_deepseek,
@@ -32,6 +33,7 @@ def get_user_ai_service(api_key=None, provider=None):
     user_keys = {}
     if user:
         user_keys = {
+            'openai': user.openai_api_key,
             'gemini': user.gemini_api_key,
             'claude': user.claude_api_key,
             'deepseek': user.deepseek_api_key,
@@ -58,6 +60,13 @@ def list_models():
     available = service.get_available_models()
     
     models_info = {
+        'openai': {
+            'name': 'OpenAI (GPT-4o)',
+            'icon': '⚡',
+            'description': 'Industry-standard powerful reasoning and coding',
+            'strengths': ['General', 'Reasoning', 'Coding'],
+            'available': 'openai' in available
+        },
         'gemini': {
             'name': 'Google Gemini',
             'icon': '💎',

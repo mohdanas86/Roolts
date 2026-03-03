@@ -5,7 +5,11 @@ import { getFileIcon } from '../services/iconHelper.jsx';
 
 const SearchPanel = () => {
     const [query, setQuery] = useState('');
-    const { files, openFile } = useFileStore();
+    const files = useFileStore(
+        state => state.files.map(f => ({ id: f.id, name: f.name, language: f.language, content: f.content })),
+        (a, b) => a.length === b.length && a.every((f, i) => f.id === b[i].id && f.name === b[i].name)
+    );
+    const openFile = useFileStore(state => state.openFile);
 
     const results = useMemo(() => {
         if (!query.trim()) return [];

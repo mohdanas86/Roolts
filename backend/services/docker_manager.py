@@ -18,7 +18,8 @@ class DockerManager:
         'nodejs': 'node:18-alpine',
         'python': 'python:3.11-alpine',
         'fullstack': 'node:18-alpine',  # Will install Python too
-        'cpp': 'gcc:latest'
+        'cpp': 'gcc:latest',
+        'vnc': 'dorowu/ubuntu-desktop-lxde-vnc:latest' # Used for GUI/Web Apps
     }
     
     # Default resource limits
@@ -138,8 +139,12 @@ class DockerManager:
                 cap_add=['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID'],  # Add only necessary ones
                 security_opt=['no-new-privileges'],
                 
+                # Expose random host port mapping to 80 for VNC
+                ports={'80/tcp': None} if env_type == 'vnc' else None,
+                
                 # Note: Network will be connected only when needed (e.g., for package installation)
-                # Container starts without network for security
+                # Container starts without network for security unless it needs it
+                network_mode='bridge' if env_type == 'vnc' else 'none',
                 
                 # Environment variables
                 environment={

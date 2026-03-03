@@ -3,78 +3,38 @@ import {
     FiChevronLeft, FiChevronRight, FiChevronDown, FiChevronUp,
     FiEye, FiGithub, FiShare2, FiBookOpen, FiGrid, FiPackage, FiZap
 } from 'react-icons/fi';
-import { useUIStore, useFileStore, useSettingsStore } from '../store';
-import WebPreview from './WebPreview';
-import LearningPanel from './LearningPanel';
-import AppsPanel from './AppsPanel';
+import { useUIStore, useFileStore } from '../store';
+import AILogo from './AILogo';
 
-// Lazy load apps
+// Lazy load all panels and apps for maximum performance
+const WebPreview = lazy(() => import('./WebPreview'));
+const BrowserPreview = lazy(() => import('./BrowserPreview'));
+const LearningPanel = lazy(() => import('./LearningPanel.jsx'));
+const CodeChampApp = lazy(() => import('./apps/CodeChampApp'));
+const AppsPanel = lazy(() => import('./AppsPanel'));
 const NotesApp = lazy(() => import('./apps/NotesApp.jsx'));
 const QuickPythonApp = lazy(() => import('./apps/QuickPythonApp.jsx'));
-const CodeChampApp = lazy(() => import('./apps/CodeChampApp.jsx'));
+const VSCodeApp = lazy(() => import('./apps/VSCodeApp.jsx'));
+const SnapshotsApp = lazy(() => import('./apps/SnapshotsApp.jsx'));
+const LearnApp = lazy(() => import('./apps/LearnApp.jsx'));
 
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
-import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 
-function SortableTab({ tab, isActive, onClick }) {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-        isDragging
-    } = useSortable({ id: tab.id });
-
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 1000 : 'auto',
-        opacity: isDragging ? 0.5 : 1,
-        position: 'relative'
-    };
-
-    return (
-        <button
-            ref={setNodeRef}
-            style={style}
-            {...attributes}
-            {...listeners}
-            className={`panel-tab ${isActive ? 'panel-tab--active' : ''}`}
-            onClick={onClick}
-            title={tab.label}
-        >
-            {tab.icon}
-        </button>
-    );
-}
 
 function RightPanel({ style, editorMinimized }) {
-    const {
-        rightPanelOpen, rightPanelTab, setRightPanelTab, toggleRightPanel,
-        rightPanelExpanded, toggleRightPanelExpanded,
-        rightPanelTabOrder, reorderRightPanelTabs,
-        rightPanelWidth, setRightPanelWidth,
-        lastOpenWidth, setLastOpenWidth,
-        isResizing
-    } = useUIStore();
-    const { files, activeFileId } = useFileStore();
-    const { experimental } = useSettingsStore();
+    const rightPanelOpen = useUIStore(state => state.rightPanelOpen);
+    const rightPanelTab = useUIStore(state => state.rightPanelTab);
+    const setRightPanelTab = useUIStore(state => state.setRightPanelTab);
+    const toggleRightPanel = useUIStore(state => state.toggleRightPanel);
+    const rightPanelExpanded = useUIStore(state => state.rightPanelExpanded);
+    const toggleRightPanelExpanded = useUIStore(state => state.toggleRightPanelExpanded);
+    const rightPanelWidth = useUIStore(state => state.rightPanelWidth);
+    const setRightPanelWidth = useUIStore(state => state.setRightPanelWidth);
+    const isResizing = useUIStore(state => state.isResizing);
+    const appPreviewUrl = useUIStore(state => state.appPreviewUrl);
+    const setAppPreviewUrl = useUIStore(state => state.setAppPreviewUrl);
 
+    // files & activeFileId removed (handed off to WebPreview)
     const [isAnimating, setIsAnimating] = React.useState(false);
-
-    const handleDoubleClick = () => {
-        setIsAnimating(true);
-        if (rightPanelOpen) {
-            toggleRightPanel();
-        } else {
-            setRightPanelWidth(lastOpenWidth || window.innerWidth / 2);
-            toggleRightPanel();
-        }
-        setTimeout(() => setIsAnimating(false), 300);
-    };
-
 
     // Window Resize Awareness
     React.useEffect(() => {
@@ -91,82 +51,77 @@ function RightPanel({ style, editorMinimized }) {
         return () => window.removeEventListener('resize', handleWindowResize);
     }, [rightPanelWidth, rightPanelOpen, toggleRightPanel, setRightPanelWidth]);
 
-    const sensors = useSensors(
-        useSensor(PointerSensor, {
-            activationConstraint: {
-                distance: 5,
-            },
-        })
-    );
-
-    const handleDragEnd = (event) => {
-        const { active, over } = event;
-        if (active.id !== over.id) {
-            const oldIndex = rightPanelTabOrder.indexOf(active.id);
-            const newIndex = rightPanelTabOrder.indexOf(over.id);
-            reorderRightPanelTabs(oldIndex, newIndex);
-        }
-    };
-
-    if (!rightPanelOpen) {
-        return (
-            <div
-                className={`right-panel right-panel--collapsed ${isAnimating ? 'right-panel--animate' : ''}`}
-                style={{ width: '60px', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '12px' }}
-            >
-                <button
-                    className="btn btn--ghost btn--icon"
-                    onClick={toggleRightPanel}
-                >
-                    <FiChevronLeft />
-                </button>
-            </div>
-        );
-    }
-
-    const allTabs = [
-        { id: 'learn', label: 'Learn', icon: <FiBookOpen /> },
-        { id: 'apps', label: 'Apps', icon: <FiGrid /> },
-        { id: 'codechamp', label: 'CodeChamp', icon: <FiZap /> }
-    ];
-
-    // Filter to ensure we only show enabled tabs but in the correct order
-    const orderedTabs = (rightPanelTabOrder || allTabs.map(t => t.id))
-        .map(id => allTabs.find(t => t.id === id))
-        .filter(Boolean);
-
-    // If there are new tabs compliant with features not yet in order, append them
-    allTabs.forEach(tab => {
-        if (!orderedTabs.find(t => t.id === tab.id)) {
-            orderedTabs.push(tab);
-        }
-    });
-
     const panelStyle = rightPanelExpanded
         ? (editorMinimized ? { maxWidth: 'calc(100% - 60px)' } : {})
         : style;
 
     return (
         <div
-            className={`right-panel ${rightPanelExpanded ? 'right-panel--expanded' : ''} ${isAnimating || !isResizing ? 'right-panel--animate' : ''}`}
-            style={{ ...panelStyle, width: `${rightPanelWidth}px`, position: 'relative' }}
+            className={`right-panel ${!rightPanelOpen ? 'right-panel--collapsed' : ''} ${rightPanelExpanded ? 'right-panel--expanded' : ''} ${isAnimating || !isResizing ? 'right-panel--animate' : ''}`}
+            style={{
+                ...panelStyle,
+                width: rightPanelOpen ? `${rightPanelWidth}px` : '50px',
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column'
+            }}
             role="complementary"
             aria-label="AI Assistant Sidebar"
         >
-            {true && (
-                <div className="panel-tabs">
-                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                        <SortableContext items={orderedTabs.map(t => t.id)} strategy={horizontalListSortingStrategy}>
-                            {orderedTabs.map((tab) => (
-                                <SortableTab
-                                    key={tab.id}
-                                    tab={tab}
-                                    isActive={rightPanelTab === tab.id}
-                                    onClick={() => setRightPanelTab(tab.id)}
-                                />
-                            ))}
-                        </SortableContext>
-                    </DndContext>
+            {/* Collapsed Sidebar Content */}
+            {!rightPanelOpen && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '12px', gap: '16px', height: '100%', background: 'var(--bg-secondary)' }}>
+                    <button
+                        className="btn btn--ghost btn--icon"
+                        onClick={() => { setRightPanelTab('learn'); toggleRightPanel(); }}
+                        title="AI Assistant"
+                        style={{ width: '36px', height: '36px', borderRadius: '8px', color: rightPanelTab === 'learn' ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                    >
+                        <AILogo size={20} active={rightPanelTab === 'learn'} />
+                    </button>
+                    <button
+                        className="btn btn--ghost btn--icon"
+                        onClick={() => { setRightPanelTab('apps'); toggleRightPanel(); }}
+                        title="Apps"
+                        style={{ width: '36px', height: '36px', borderRadius: '8px', color: rightPanelTab === 'apps' ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                    >
+                        <FiGrid size={20} />
+                    </button>
+                    <button
+                        className="btn btn--ghost btn--icon"
+                        onClick={() => { setRightPanelTab('codechamp'); toggleRightPanel(); }}
+                        title="CodeChamp"
+                        style={{ width: '36px', height: '36px', borderRadius: '8px', color: rightPanelTab === 'codechamp' ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                    >
+                        <FiZap size={20} />
+                    </button>
+                </div>
+            )}
+
+            {/* Expanded Sidebar Content */}
+            <div style={{ display: rightPanelOpen ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                <div className="panel-tabs" style={{ justifyContent: 'flex-start', gap: '8px' }}>
+                    <button
+                        className={`panel-tab ${rightPanelTab === 'learn' ? 'panel-tab--active' : ''}`}
+                        onClick={() => setRightPanelTab('learn')}
+                        title="AI Assistant"
+                    >
+                        <AILogo size={14} active={rightPanelTab === 'learn'} /> <span style={{ marginLeft: '6px' }}>AI</span>
+                    </button>
+                    <button
+                        className={`panel-tab ${rightPanelTab === 'apps' ? 'panel-tab--active' : ''}`}
+                        onClick={() => setRightPanelTab('apps')}
+                        title="Applications"
+                    >
+                        <FiGrid /> <span style={{ marginLeft: '6px' }}>Apps</span>
+                    </button>
+                    <button
+                        className={`panel-tab ${rightPanelTab === 'codechamp' ? 'panel-tab--active' : ''}`}
+                        onClick={() => setRightPanelTab('codechamp')}
+                        title="CodeChamp"
+                    >
+                        <FiZap /> <span style={{ marginLeft: '6px' }}>CodeChamp</span>
+                    </button>
 
                     <div style={{ flex: 1 }} />
 
@@ -177,33 +132,63 @@ function RightPanel({ style, editorMinimized }) {
                     >
                         {rightPanelExpanded ? <FiChevronDown /> : <FiChevronUp />}
                     </button>
-                    <button className="btn btn--ghost btn--icon" onClick={toggleRightPanel}>
+                    <button
+                        className="btn btn--ghost btn--icon"
+                        onClick={toggleRightPanel}
+                        title="Minimize Sidebar"
+                        style={{ marginLeft: '4px' }}
+                    >
                         <FiChevronRight />
                     </button>
                 </div>
-            )}
 
-            <Suspense fallback={<div className="panel-loading"><div className="spinner"></div> Loading...</div>}>
-                {rightPanelTab === 'preview' && (
-                    <WebPreview
-                        files={files}
-                        activeFileId={activeFileId}
-                        onClose={() => setRightPanelTab('apps')}
-                    />
-                )}
-                {rightPanelTab === 'learn' && <LearningPanel onBack={() => setRightPanelTab('apps')} />}
-                {rightPanelTab === 'apps' && <AppsPanel onOpenApp={setRightPanelTab} />}
+                <div style={{ flex: 1, position: 'relative', overflow: 'hidden', pointerEvents: isResizing ? 'none' : 'auto' }}>
+                    <Suspense fallback={<div className="panel-loading"><div className="spinner"></div> Loading...</div>}>
+                        {rightPanelTab === 'preview' && (
+                            appPreviewUrl ? (
+                                <BrowserPreview
+                                    url={appPreviewUrl}
+                                    onClose={() => {
+                                        setAppPreviewUrl(null);
+                                        setRightPanelTab('apps');
+                                    }}
+                                />
+                            ) : (
+                                <WebPreview
+                                    onClose={() => setRightPanelTab('apps')}
+                                />
+                            )
+                        )}
 
-                {rightPanelTab === 'notes' && (
-                    <NotesApp onBack={() => setRightPanelTab('apps')} isWindowed={false} />
-                )}
-                {rightPanelTab === 'quickpython' && (
-                    <QuickPythonApp onBack={() => setRightPanelTab('apps')} isWindowed={false} />
-                )}
-                {rightPanelTab === 'codechamp' && (
-                    <CodeChampApp onClose={() => setRightPanelTab('apps')} />
-                )}
-            </Suspense>
+                        {/* Only mount the active panel to save memory */}
+                        {rightPanelTab === 'learn' && (
+                            <LearningPanel onBack={() => setRightPanelTab('apps')} />
+                        )}
+
+                        {rightPanelTab === 'codechamp' && (
+                            <CodeChampApp onClose={() => setRightPanelTab('apps')} />
+                        )}
+
+                        {rightPanelTab === 'apps' && <AppsPanel onOpenApp={setRightPanelTab} />}
+
+                        {rightPanelTab === 'notes' && (
+                            <NotesApp onBack={() => setRightPanelTab('apps')} isWindowed={false} />
+                        )}
+                        {rightPanelTab === 'snapshots' && (
+                            <SnapshotsApp onBack={() => setRightPanelTab('apps')} isWindowed={false} />
+                        )}
+                        {rightPanelTab === 'quickpython' && (
+                            <QuickPythonApp onBack={() => setRightPanelTab('apps')} isWindowed={false} />
+                        )}
+                        {rightPanelTab === 'extensions' && (
+                            <VSCodeApp onBack={() => setRightPanelTab('apps')} />
+                        )}
+                        {rightPanelTab === 'learn_app' && (
+                            <LearnApp onClose={() => setRightPanelTab('apps')} />
+                        )}
+                    </Suspense>
+                </div>
+            </div>
         </div>
     );
 }

@@ -1,0 +1,389 @@
+{
+  "name": "kiro-for-codex",
+  "displayName": "Kiro for Codex",
+  "description": "Spec-driven development with Codex CLI - inspired by Kiro",
+  "version": "0.7.1",
+  "author": "atman-33",
+  "publisher": "atman-dev",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atman-33/kiro-for-codex"
+  },
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "dist/extension.js",
+  "extensionKind": [
+    "workspace",
+    "ui"
+  ],
+  "scripts": {
+    "install:all": "npm install && cd webview-ui && npm install",
+    "build:ext": "esbuild src/extension.ts --bundle --platform=node --target=node16 --external:vscode --outfile=dist/extension.js",
+    "build": "npm run build-prompts && npm run build:ext && node scripts/copy-resources.js && npm run build:webview",
+    "vscode:prepublish": "npm run build",
+    "compile": "npm run build && npm run package",
+    "watch": "concurrently \"tsc -watch -p ./\" \"node scripts/watch-prompts.js\"",
+    "package": "vsce package",
+    "build-prompts": "node scripts/build-prompts.js",
+    "compile-web": "webpack --mode development",
+    "watch-web": "webpack --mode development --watch",
+    "package-web": "npm run build-prompts && webpack --mode production --devtool hidden-source-map",
+    "lint": "biome lint src/",
+    "lint:fix": "biome lint --write src/",
+    "format": "biome format --write src/",
+    "check": "biome check --write src/",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "prepare": "husky",
+    "--- WEBVIEW ---": "--- --- --- --- ---",
+    "build:webview": "npm --prefix webview-ui run build"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "Kiro for Codex",
+      "properties": {
+        "kiroCodex.views.specs.visible": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Specs view in the Kiro activity container"
+        },
+        "kiroCodex.views.steering.visible": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Steering view in the Kiro activity container"
+        },
+        "kiroCodex.views.prompts.visible": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Prompts view in the Kiro activity container"
+        },
+        "kiroCodex.views.settings.visible": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Settings view in the Kiro activity container"
+        },
+        "kiroCodex.codex.path": {
+          "type": "string",
+          "default": "codex",
+          "description": "Codex CLI executable name or path"
+        },
+        "kiroCodex.codex.defaultApprovalMode": {
+          "type": "string",
+          "enum": [
+            "full-auto",
+            "yolo"
+          ],
+          "default": "full-auto",
+          "description": "Default approval mode when invoking Codex CLI"
+        },
+        "kiroCodex.codex.defaultModel": {
+          "type": "string",
+          "default": "gpt-5-codex",
+          "description": "Default model identifier for Codex CLI"
+        },
+        "kiroCodex.codex.timeout": {
+          "type": "number",
+          "default": 30000,
+          "description": "Command timeout in milliseconds for Codex CLI"
+        },
+        "kiroCodex.codex.terminalDelay": {
+          "type": "number",
+          "default": 1000,
+          "description": "Delay in milliseconds before writing to terminal to improve UX"
+        },
+        "kiroCodex.codex.windowsShellPath": {
+          "type": "string",
+          "default": "",
+          "description": "Windows only: shell executable to launch when running Codex commands. Leave empty to inherit the VS Code default terminal."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kiroCodex",
+          "title": "Kiro for Codex",
+          "icon": "./icons/kiro.svg"
+        }
+      ]
+    },
+    "views": {
+      "kiroCodex": [
+        {
+          "id": "kiroCodex.views.specExplorer",
+          "name": "Specs",
+          "icon": "symbol-structure",
+          "when": "!(workbenchState == empty || workspaceFolderCount == 0) && config.kiroCodex.views.specs.visible"
+        },
+        {
+          "id": "kiroCodex.views.steeringExplorer",
+          "name": "Steering",
+          "icon": "symbol-parameter",
+          "when": "!(workbenchState == empty || workspaceFolderCount == 0) && config.kiroCodex.views.steering.visible"
+        },
+        {
+          "id": "kiroCodex.views.promptsExplorer",
+          "name": "Prompts",
+          "icon": "terminal",
+          "when": "!(workbenchState == empty || workspaceFolderCount == 0) && config.kiroCodex.views.prompts.visible"
+        },
+        {
+          "id": "kiroCodex.views.overview",
+          "name": "Settings",
+          "icon": "gear",
+          "visibility": "collapsed",
+          "when": "!(workbenchState == empty || workspaceFolderCount == 0) && config.kiroCodex.views.settings.visible"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "kiroCodex.views.specExplorer",
+        "contents": "Plan features with Specs\n\n[$(plus) Create New Spec](command:kiroCodex.spec.create)"
+      },
+      {
+        "view": "kiroCodex.views.promptsExplorer",
+        "contents": "Create and run prompts (.md) under .codex/prompts\n\n[$(plus) Create Prompt](command:kiroCodex.prompts.create)\n[$(refresh) Refresh](command:kiroCodex.prompts.refresh)"
+      },
+      {
+        "view": "kiroCodex.views.overview",
+        "contents": "Configure Kiro for Codex\n\n[$(gear) Open Settings](command:kiroCodex.settings.open)\n[$(question) Help](command:kiroCodex.help.open)"
+      },
+      {
+        "view": "kiroCodex.views.specExplorer",
+        "contents": "Build complex features with structured planning\n\n[$(plus) Create New Spec](command:kiroCodex.spec.create)"
+      },
+      {
+        "view": "kiroCodex.views.steeringExplorer",
+        "contents": "[$(globe) Create User Rule](command:kiroCodex.steering.createUserRule)\n\n[$(root-folder) Create Project Rule](command:kiroCodex.steering.createProjectRule)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "kiroCodex.prompts.create",
+        "title": "Create Prompt",
+        "category": "Kiro for Codex",
+        "icon": "$(plus)"
+      },
+      {
+        "command": "kiroCodex.prompts.refresh",
+        "title": "Refresh Prompts",
+        "category": "Kiro for Codex",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiroCodex.prompts.run",
+        "title": "Run Prompt",
+        "category": "Kiro for Codex",
+        "icon": "$(play)"
+      },
+      {
+        "command": "kiroCodex.spec.create",
+        "title": "Create New Spec",
+        "category": "Kiro for Codex",
+        "icon": "$(plus)"
+      },
+      {
+        "command": "kiroCodex.steering.create",
+        "title": "Create Custom Steering",
+        "category": "Kiro for Codex",
+        "icon": "$(plus)"
+      },
+      {
+        "command": "kiroCodex.steering.generateInitial",
+        "title": "Init Steering",
+        "category": "Kiro for Codex",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "kiroCodex.steering.refine",
+        "title": "Refine Steering",
+        "category": "Kiro for Codex",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "kiroCodex.spec.delete",
+        "title": "Delete Spec",
+        "category": "Kiro for Codex",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "kiroCodex.steering.delete",
+        "title": "Delete Steering",
+        "category": "Kiro for Codex",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "kiroCodex.steering.createUserRule",
+        "title": "Create User Rule",
+        "category": "Kiro for Codex",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "kiroCodex.steering.createProjectRule",
+        "title": "Create Project Rule",
+        "category": "Kiro for Codex",
+        "icon": "$(root-folder)"
+      },
+      {
+        "command": "kiroCodex.settings.open",
+        "title": "Kiro Settings",
+        "category": "Kiro for Codex",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "kiroCodex.checkForUpdates",
+        "title": "Check for Updates",
+        "category": "Kiro for Codex",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "kiroCodex.spec.refresh",
+        "title": "Refresh Specs",
+        "category": "Kiro for Codex",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiroCodex.steering.refresh",
+        "title": "Refresh Steering",
+        "category": "Kiro for Codex",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiroCodex.help.open",
+        "title": "Kiro Help",
+        "category": "Kiro for Codex",
+        "icon": "$(question)"
+      },
+      {
+        "command": "kiroCodex.menu.open",
+        "title": "Kiro Menu",
+        "category": "Kiro for Codex",
+        "icon": "$(ellipsis)"
+      },
+      {
+        "command": "kiroCodex.spec.implTask",
+        "title": "Implement Task",
+        "category": "Kiro for Codex"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "kiroCodex.menu.open",
+          "when": "view == kiroCodex.views.overview",
+          "group": "navigation"
+        },
+        {
+          "command": "kiroCodex.spec.create",
+          "when": "view == kiroCodex.views.specExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kiroCodex.spec.refresh",
+          "when": "view == kiroCodex.views.specExplorer",
+          "group": "navigation@3"
+        },
+        {
+          "command": "kiroCodex.steering.generateInitial",
+          "when": "view == kiroCodex.views.steeringExplorer",
+          "group": "navigation@2"
+        },
+        {
+          "command": "kiroCodex.steering.create",
+          "when": "view == kiroCodex.views.steeringExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kiroCodex.steering.refresh",
+          "when": "view == kiroCodex.views.steeringExplorer",
+          "group": "navigation@3"
+        },
+        {
+          "command": "kiroCodex.prompts.create",
+          "when": "view == kiroCodex.views.promptsExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kiroCodex.prompts.refresh",
+          "when": "view == kiroCodex.views.promptsExplorer",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "kiroCodex.spec.delete",
+          "when": "view == kiroCodex.views.specExplorer && viewItem == spec",
+          "group": "7_modification"
+        },
+        {
+          "command": "kiroCodex.prompts.run",
+          "when": "view == kiroCodex.views.promptsExplorer && viewItem == prompt",
+          "group": "inline"
+        },
+        {
+          "command": "kiroCodex.steering.refine",
+          "when": "view == kiroCodex.views.steeringExplorer && viewItem == steering-document",
+          "group": "inline"
+        },
+        {
+          "command": "kiroCodex.steering.delete",
+          "when": "view == kiroCodex.views.steeringExplorer && viewItem == steering-document",
+          "group": "7_modification"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "kiroCodex.spec.create"
+        },
+        {
+          "command": "kiroCodex.prompts.create",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "kiroCodex.steering.create",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "kiroCodex.checkForUpdates"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "handlebars": "^4.7.8",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "@jest/globals": "^29.7.0",
+    "@types/glob": "^8.1.0",
+    "@types/handlebars": "^4.0.40",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.84.0",
+    "@vitest/ui": "^3.2.4",
+    "concurrently": "^9.2.0",
+    "copy-webpack-plugin": "^13.0.0",
+    "esbuild": "^0.23.0",
+    "husky": "^9.1.7",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.0",
+    "ts-loader": "^9.5.2",
+    "typescript": "^5.3.0",
+    "vitest": "^3.2.4",
+    "vsce": "^2.15.0"
+  }
+}

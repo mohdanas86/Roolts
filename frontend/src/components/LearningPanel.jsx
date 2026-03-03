@@ -1,16 +1,30 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import {
-    FiSettings, FiX, FiPaperclip, FiSend, FiZap, FiCopy, FiCheck, FiRotateCcw, FiPlay, FiGrid, FiChevronDown, FiChevronUp, FiSave, FiTrash2, FiSquare
+    FiSettings, FiX, FiPaperclip, FiSend, FiZap, FiCopy, FiCheck, FiRotateCcw, FiPlay, FiGrid, FiChevronDown, FiChevronUp, FiSave, FiTrash2, FiSquare,
+    FiMessageSquare, FiBookOpen, FiExternalLink, FiClock, FiBox, FiActivity, FiTrendingUp, FiMonitor, FiEye
 } from 'react-icons/fi';
-import { useFileStore, useUIStore, useExecutionStore, useSettingsStore, useLearningStore } from '../store';
+import { getGuiData } from './GUIPreviewPanel';
+
+
+import { useFileStore, useUIStore, useExecutionStore, useSettingsStore, useLearningStore, useTerminalStore } from '../store';
 import { aiService } from '../services/api';
+import { authService } from '../services/authService';
 import api from '../services/api'; // Direct access to axios instance
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
+import executorService from '../services/executorService';
 
+// Cloud-First AI Glow Animation
+const cloudGlow = `
+  @keyframes cloud-glow {
+    0% { filter: drop-shadow(0 0 10px rgba(var(--accent-primary-rgb), 0.1)); opacity: 0.95; }
+    50% { filter: drop-shadow(0 0 20px rgba(var(--accent-primary-rgb), 0.25)); opacity: 1; }
+    100% { filter: drop-shadow(0 0 10px rgba(var(--accent-primary-rgb), 0.1)); opacity: 0.95; }
+  }
+`;
 const CopyButton = ({ content }) => {
     const [copied, setCopied] = useState(false);
     const handleCopy = async () => {
@@ -30,7 +44,20 @@ const CopyButton = ({ content }) => {
     );
 };
 
-// Unified clipboard helper (v1.0.1 - Cache Buster)
+// Redundant RunButton replaced by inline action in Markdown components
+
+
+// Radical Simplicity Section Header
+const MarkdownSectionHeader = ({ children }) => {
+    return (
+        <div className="section-radical-simplicity">
+            <span className="section-title-radical">{children}</span>
+        </div>
+    );
+};
+
+// GUI components moved to separate file
+
 const handleGlobalCopy = async (content) => {
     try {
         await navigator.clipboard.writeText(content);
@@ -44,37 +71,87 @@ const handleGlobalCopy = async (content) => {
 function LearningPanel({ onBack }) {
     // Inject into local scope too for maximum visibility across different renderers
     const copyToClipboard = handleGlobalCopy;
+    const {
+        chatMessages: chatHistory,
+        addChatMessage,
+        clearChat,
+        explanation,
+        setExplanation,
+        diagram,
+        setDiagram,
+        resources,
+        setResources,
+        isGenerating: isLoadingFeature,
+        setGenerating: setIsLoadingFeature,
+        activeTab: learningTab,
+        setActiveTab: setLearningTab
+    } = useLearningStore();
+
     const [query, setQuery] = useState('');
-    const [chatHistory, setChatHistory] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [loadingFeature, setLoadingFeature] = useState(null);
     const [showSettings, setShowSettings] = useState(false);
     const [provider, setProvider] = useState(() => localStorage.getItem('roolts_ai_provider') || 'roolts');
-    const [apiKey, setApiKey] = useState(() => localStorage.getItem('roolts_ai_key') || '');
+    const [apiKey, setApiKey] = useState(() => {
+        const storedProvider = localStorage.getItem('roolts_ai_provider') || 'roolts';
+        return localStorage.getItem(`roolts_ai_key_${storedProvider}`) || localStorage.getItem('roolts_ai_key') || '';
+    });
     const [aiStatus, setAiStatus] = useState({ configured: null, models: [] });
     const [translateLang, setTranslateLang] = useState('python');
     const [expandedCategory, setExpandedCategory] = useState(null);
     const [showAllTools, setShowAllTools] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const { features, toggleFeature } = useSettingsStore();
+    const features = useSettingsStore(state => state.features);
+    const toggleFeature = useSettingsStore(state => state.toggleFeature);
 
-    const { files, activeFileId } = useFileStore();
-    const { addNotification, toggleRightPanel, setRightPanelTab } = useUIStore();
-    const { output: executionOutput } = useExecutionStore();
-    const { pendingQuery, setPendingQuery } = useLearningStore();
-    const activeFile = files.find(f => f.id === activeFileId);
+    const activeFileId = useFileStore(state => state.activeFileId);
+    const activeFile = useFileStore(
+        state => state.files.find(f => f.id === state.activeFileId),
+        (a, b) => a?.id === b?.id && a?.content === b?.content && a?.language === b?.language
+    );
+
+    const addNotification = useUIStore(state => state.addNotification);
+    const toggleRightPanel = useUIStore(state => state.toggleRightPanel);
+    const setRightPanelTab = useUIStore(state => state.setRightPanelTab);
+    const activeSidebarTab = useUIStore(state => state.activeSidebarTab);
+    const openFiles = useFileStore(state => state.files);
+
+    const legacyOutput = useExecutionStore(state => state.output);
+    const executionOutput = useTerminalStore(state => state.executionOutput);
+    const [lastErrorProcessed, setLastErrorProcessed] = useState(null);
+    const pendingQuery = useLearningStore(state => state.pendingQuery);
+    const setPendingQuery = useLearningStore(state => state.setPendingQuery);
     const chatEndRef = useRef(null);
     const abortControllerRef = useRef(null);
+    const fileInputRef = useRef(null);
+    const [attachments, setAttachments] = useState([]);
+    const { setActiveGui, setShowOutput: setShowGlobalOutput } = useExecutionStore();
+
 
     const handleStop = () => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
             setIsLoading(false);
-            setLoadingFeature(null);
             addNotification({ type: 'info', message: 'AI request cancelled' });
         }
     };
+
+    // Load Chat History from backend on mount if store is empty
+    useEffect(() => {
+        const fetchHistory = async () => {
+            if (authService.isAuthenticated() && chatHistory.length === 0) {
+                try {
+                    const res = await aiService.getChatHistory();
+                    if (res.data && res.data.length > 0) {
+                        res.data.forEach(msg => addChatMessage(msg));
+                    }
+                } catch (error) {
+                    console.error("Could not fetch chat history", error);
+                }
+            }
+        };
+        fetchHistory();
+    }, []);
 
     // Check AI status on mount
     useEffect(() => {
@@ -96,9 +173,38 @@ function LearningPanel({ onBack }) {
 
     useEffect(() => {
         localStorage.setItem('roolts_ai_provider', provider);
+        if (provider !== 'roolts') {
+            localStorage.setItem(`roolts_ai_key_${provider}`, apiKey);
+        }
         localStorage.setItem('roolts_ai_key', apiKey);
-        // localStorage.setItem('roolts_ai_chat_history', JSON.stringify(chatHistory)); // History Disabled
     }, [provider, apiKey]);
+
+    // Auto-trigger explanation on terminal errors
+    useEffect(() => {
+        if (!executionOutput || executionOutput.length === 0) return;
+
+        const lastLine = executionOutput[executionOutput.length - 1];
+
+        // Check if this is a new error we haven't processed yet
+        if (lastLine.type === 'error' && lastLine.content !== lastErrorProcessed) {
+            setLastErrorProcessed(lastLine.content);
+
+            // Use the current active file for context
+            const language = activeFile?.language || 'python';
+            const code = activeFile?.content || '';
+
+            // Construct terminal context (last few lines if possible, but at least the error)
+            const errorContext = executionOutput
+                .slice(-5)
+                .map(l => l.content)
+                .join('\n');
+
+            handleFeature('Explain Error', async () => {
+                const response = await aiService.explainCode(code, language, errorContext);
+                return response;
+            });
+        }
+    }, [executionOutput]);
 
     // Handle pending queries from other components (like Context Menu)
     useEffect(() => {
@@ -111,45 +217,85 @@ function LearningPanel({ onBack }) {
     const handleChat = async (e, forcedQuery = null) => {
         if (e) e.preventDefault();
         const finalQuery = forcedQuery || query;
-        if (!finalQuery.trim() || !activeFile) return;
+        if (!finalQuery.trim() && attachments.length === 0) return;
 
+        // Provide defaults if no active file
+        const fileContent = activeFile?.content || '';
+        const fileLanguage = activeFile?.language || 'plaintext';
+
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         const userMsg = {
             role: 'user',
-            content: finalQuery,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            content: finalQuery + (attachments.length > 0 ? `\n\n*(Attached ${attachments.length} file${attachments.length > 1 ? 's' : ''})*` : ''),
+            timestamp: timestamp
         };
-        setChatHistory(prev => [...prev, userMsg]);
-        if (!forcedQuery) setQuery('');
+        addChatMessage(userMsg);
+        if (!forcedQuery) {
+            setQuery('');
+        }
         setIsLoading(true);
+
+        // Save to backend asynchronously
+        if (authService.isAuthenticated()) {
+            aiService.saveChatMessage('user', finalQuery).catch(e => console.error("Failed saving message:", e));
+        }
 
         // Abort previous request if any
         if (abortControllerRef.current) abortControllerRef.current.abort();
         abortControllerRef.current = new AbortController();
 
         let contextQuery = finalQuery;
+
+        if (attachments.length > 0) {
+            contextQuery += `\n\n[USER PROVIDED ATTACHMENTS]:\nThe user has uploaded the following files for you to read. Please base your answer on these files if applicable.\n`;
+            attachments.forEach(att => {
+                const MAX_CHARS = 12000;
+                let contentText = att.content;
+                if (contentText.length > MAX_CHARS) {
+                    contentText = contentText.substring(0, MAX_CHARS) + `\n\n...[TRUNCATED: ${att.name} was too large so the rest was omitted for the AI context]...`;
+                }
+                contextQuery += `\n--- File: ${att.name} ---\n${contentText}\n--- End File ---`;
+            });
+        }
+
         if (features.socratesMode) {
-            contextQuery = `[SYSTEM: SOCRATES MODE ENABLED. You are Socrates. Do NOT give the user the answer or code directly. Instead, ask a guiding question to help them discover the answer themselves. Be helpful but Socratic.]\n\nUser Query: ${finalQuery}`;
+            contextQuery = `[SYSTEM: SOCRATES MODE ENABLED. You are Socrates. Do NOT give the user the answer or code directly. Instead, ask a guiding question to help them discover the answer themselves. Be helpful but Socratic.]\n\nUser Query: ${contextQuery}`;
+        }
+
+        // Save current attachments temporarily in case of failure, then clear
+        const currentAttachments = [...attachments];
+        if (!forcedQuery) {
+            setAttachments([]);
         }
 
         try {
             const response = await aiService.chat(
-                activeFile.content,
-                activeFile.language || 'plaintext',
+                fileContent,
+                fileLanguage,
                 contextQuery,
                 chatHistory,
                 provider !== 'roolts' ? apiKey : null,
                 provider !== 'roolts' ? provider : null,
                 [],
                 abortControllerRef.current.signal,
-                executionOutput
+                legacyOutput
             );
 
-            setChatHistory(prev => [...prev, {
+            const aiContent = response.data.response || "No response generated.";
+            const aiReasoning = response.data.reasoning;
+
+            addChatMessage({
                 role: 'assistant',
-                content: response.data.response || "No response generated.",
-                reasoning: response.data.reasoning,
+                content: aiContent,
+                reasoning: aiReasoning,
+                image: response.data.image || null,
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }]);
+            });
+
+            // Save output to backend
+            if (authService.isAuthenticated()) {
+                aiService.saveChatMessage('assistant', aiContent, aiReasoning).catch(e => console.error("Failed saving message:", e));
+            }
         } catch (error) {
             if (error.name === 'AbortError' || axios?.isCancel?.(error)) {
                 // Ignore cancellation
@@ -157,15 +303,99 @@ function LearningPanel({ onBack }) {
                 return;
             }
             const errMsg = error.response?.data?.response || error.message || 'AI chat failed — check your connection.';
-            setChatHistory(prev => [...prev, {
+            if (!forcedQuery) setAttachments(currentAttachments); // Restore on error
+            addChatMessage({
                 role: 'assistant',
                 content: `> ⚠️ **Error:** ${errMsg}`,
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }]);
+            });
         } finally {
             abortControllerRef.current = null;
             setIsLoading(false);
         }
+    };
+
+    const handleReadScreen = async () => {
+        setIsLoading(true);
+        addNotification({ type: 'info', message: 'AI is reading your workspace context...' });
+
+        // Gather context
+        const activeFileContext = activeFile ? `Active File: ${activeFile.name}\nLanguage: ${activeFile.language}\nContent:\n${activeFile.content.substring(0, 5000)}` : 'No file currently active.';
+
+        const openTabsContext = openFiles.length > 0
+            ? `Open Tabs: ${openFiles.map(f => f.name).join(', ')}`
+            : 'No other tabs open.';
+
+        const terminalContext = executionOutput && executionOutput.length > 0
+            ? `Recent Terminal Output:\n${executionOutput.slice(-15).map(l => `[${l.type}] ${l.content}`).join('\n')}`
+            : 'Terminal is empty.';
+
+        const screenContext = `[SYSTEM: SCREEN READ TRIGGERED]\nThe user has asked you to "Read the Screen". Here is the current workspace state:\n\n${activeFileContext}\n\n${openTabsContext}\n\n${terminalContext}\n\nBased on this, tell the user what they are working on, identify any obvious issues in their code or terminal errors, and suggest the next logical step. Be concise and proactive.`;
+
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        // Add a specialized user message
+        addChatMessage({
+            role: 'user',
+            content: `🔍 **Read my screen** (Analyzing workspace context...)`,
+            timestamp: timestamp
+        });
+
+        if (authService.isAuthenticated()) {
+            aiService.saveChatMessage('user', "Read my screen").catch(e => console.error("Failed saving message:", e));
+        }
+
+        try {
+            const response = await aiService.chat(
+                activeFile?.content || '',
+                activeFile?.language || 'plaintext',
+                screenContext,
+                chatHistory,
+                provider !== 'roolts' ? apiKey : null,
+                provider !== 'roolts' ? provider : null
+            );
+
+            const aiContent = response.data.response || "I've analyzed your screen. How can I help further?";
+            const aiReasoning = response.data.reasoning;
+
+            addChatMessage({
+                role: 'assistant',
+                content: aiContent,
+                reasoning: aiReasoning,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            });
+
+            if (authService.isAuthenticated()) {
+                aiService.saveChatMessage('assistant', aiContent, aiReasoning).catch(e => console.error("Failed saving message:", e));
+            }
+        } catch (error) {
+            addChatMessage({
+                role: 'assistant',
+                content: `> ⚠️ **Screen Read Failed:** ${error.response?.data?.error || error.message}`,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleFileAttach = async (e) => {
+        const files = Array.from(e.target.files);
+        const newAttachments = [];
+        for (const file of files) {
+            const content = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.readAsText(file);
+            });
+            newAttachments.push({
+                name: file.name,
+                content: content,
+                type: file.type || 'text/plain'
+            });
+        }
+        setAttachments(prev => [...prev, ...newAttachments]);
+        e.target.value = null; // Reset input
     };
 
     const exportChatToMarkdown = () => {
@@ -194,10 +424,18 @@ function LearningPanel({ onBack }) {
         addNotification({ type: 'success', message: 'Chat exported as Markdown' });
     };
 
-    const clearHistory = () => {
+    const clearHistory = async () => {
         if (window.confirm('Are you sure you want to delete all chat history? This cannot be undone.')) {
-            setChatHistory([]);
-            localStorage.removeItem('roolts_ai_chat_history');
+            clearChat();
+            if (authService.isAuthenticated()) {
+                try {
+                    await aiService.clearChatHistory();
+                } catch (e) {
+                    console.error("Could not clear on backend", e);
+                }
+            } else {
+                localStorage.removeItem('roolts_ai_chat_history');
+            }
             addNotification({ type: 'info', message: 'Chat history cleared' });
         }
     };
@@ -208,7 +446,7 @@ function LearningPanel({ onBack }) {
             addNotification({ type: 'warning', message: 'Open a file first' });
             return;
         }
-        setLoadingFeature(featureName);
+        setIsLoadingFeature(featureName);
         setIsLoading(true);
 
         // Abort previous request if any
@@ -216,35 +454,47 @@ function LearningPanel({ onBack }) {
         abortControllerRef.current = new AbortController();
 
         // Add a "user" bubble showing what feature was triggered
-        setChatHistory(prev => [...prev, {
+        addChatMessage({
             role: 'user',
             content: `🔧 **${featureName}** on \`${activeFile.name || 'current file'}\``,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }]);
+        });
 
         try {
-            const response = await apiCall(activeFile.content, activeFile.language || 'plaintext', executionOutput, abortControllerRef.current.signal);
+            const response = await apiCall(activeFile.content, activeFile.language || 'plaintext', legacyOutput, abortControllerRef.current.signal);
             const data = response.data;
-            setChatHistory(prev => [...prev, {
+            const aiContent = data.response || data.explanation || data.error || 'No response.';
+            const aiReasoning = data.reasoning;
+
+            // For resources, attach them to the chat message for inline rendering
+            const inlineResources = (featureName === 'Suggest Resources' && data.resources) ? data.resources : null;
+
+            // Always add to chat history for context
+            addChatMessage({
                 role: 'assistant',
-                content: data.response || data.error || 'No response.',
-                reasoning: data.reasoning,
+                content: aiContent,
+                reasoning: aiReasoning,
+                resources: inlineResources,
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }]);
+            });
+
+            if (authService.isAuthenticated()) {
+                aiService.saveChatMessage('assistant', aiContent, aiReasoning).catch(e => console.error("Failed saving message:", e));
+            }
         } catch (error) {
             if (error.name === 'AbortError' || axios?.isCancel?.(error)) {
                 // Ignore cancellation
                 console.log(`${featureName} cancelled by user`);
                 return;
             }
-            setChatHistory(prev => [...prev, {
+            addChatMessage({
                 role: 'assistant',
                 content: `> ⚠️ **${featureName} failed:** ${error.response?.data?.error || error.message}`,
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }]);
+            });
         } finally {
             abortControllerRef.current = null;
-            setLoadingFeature(null);
+            setIsLoadingFeature(null);
             setIsLoading(false);
         }
     };
@@ -279,6 +529,7 @@ function LearningPanel({ onBack }) {
                 { icon: '📄', label: 'README', desc: 'Generate README.md', action: () => handleFeature('Generate README', aiService.generateReadme) },
                 { icon: '📚', label: 'API Docs', desc: 'Full API reference', action: () => handleFeature('API Documentation', aiService.generateApiDocs) },
                 { icon: '💬', label: 'Comments', desc: 'Add inline comments', action: () => handleFeature('Inline Comments', aiService.addInlineComments) },
+                { icon: '🌐', label: 'Resources', desc: 'Suggested learning links', action: () => handleFeature('Suggest Resources', aiService.suggestResources) },
             ]
         },
         {
@@ -287,6 +538,20 @@ function LearningPanel({ onBack }) {
                 { icon: '📋', label: 'Stack Trace', desc: 'Analyze error traces', action: () => handleFeature('Stack Trace Analysis', (code, lang) => aiService.analyzeStackTrace(code, lang, '')) },
                 { icon: '🔮', label: 'Predict Bugs', desc: 'Find bugs before they hit', action: () => handleFeature('Bug Prediction', aiService.predictBugs) },
                 { icon: '🔍', label: 'Review', desc: 'Security & style review', action: () => handleFeature('Code Review', aiService.review) },
+                {
+                    icon: '🏥', label: 'Health', desc: 'Scan compiler environment',
+                    action: () => handleFeature('Scan Compiler', async () => {
+                        const response = await aiService.scanCompiler();
+                        const aiContent = response.data.response || response.data.content || '';
+                        addChatMessage({
+                            role: 'assistant',
+                            content: aiContent,
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        });
+                        setLearningTab('assistant');
+                        return response;
+                    })
+                },
             ]
         },
         {
@@ -302,8 +567,9 @@ function LearningPanel({ onBack }) {
         { icon: '🔄', label: 'Refactor', action: () => handleFeature('Refactor', aiService.refactor) },
         { icon: '🧪', label: 'Tests', action: () => handleFeature('Generate Tests', aiService.generateTests) },
         { icon: '📝', label: 'Docs', action: () => handleFeature('Generate Docs', aiService.generateDocs) },
+        { icon: '🌐', label: 'Resources', action: () => handleFeature('Suggest Resources', aiService.suggestResources) },
         { icon: '🐛', label: 'Fix', action: () => handleFeature('Fix Code', aiService.fixCode) },
-        { icon: '⚡', label: 'Perf', action: () => handleFeature('Performance Analysis', aiService.analyzePerformance) },
+        { icon: '🔍', label: 'Read Screen', action: handleReadScreen, primary: true },
     ];
 
     const quickActions = [
@@ -367,9 +633,29 @@ function LearningPanel({ onBack }) {
                             </div>
                         </div>
 
-                        <label>Provider</label>
-                        <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-                            <option value="roolts">Roolts</option>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <label>Provider</label>
+                            {aiStatus.configured !== null && (
+                                <span style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <div style={{
+                                        width: '6px',
+                                        height: '6px',
+                                        borderRadius: '50%',
+                                        backgroundColor: (provider === 'roolts' ? aiStatus.configured : aiStatus.models.includes(provider)) ? 'var(--success-color)' : 'var(--text-secondary)'
+                                    }} />
+                                    {(provider === 'roolts' ? aiStatus.configured : aiStatus.models.includes(provider)) ? 'Connected' : 'Not Connected'}
+                                </span>
+                            )}
+                        </div>
+                        <select
+                            value={provider}
+                            onChange={(e) => {
+                                const newProvider = e.target.value;
+                                setProvider(newProvider);
+                                setApiKey(localStorage.getItem(`roolts_ai_key_${newProvider}`) || '');
+                            }}
+                        >
+                            <option value="roolts">Roolts (Auto)</option>
                             <option value="openai">OpenAI</option>
                             <option value="gemini">Gemini</option>
                             <option value="deepseek">DeepSeek</option>
@@ -378,12 +664,36 @@ function LearningPanel({ onBack }) {
                         {provider !== 'roolts' && (
                             <>
                                 <label>API Key</label>
-                                <input
-                                    type="password"
-                                    value={apiKey}
-                                    onChange={(e) => setApiKey(e.target.value)}
-                                    placeholder="Enter key..."
-                                />
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <input
+                                        type="password"
+                                        value={apiKey}
+                                        onChange={(e) => setApiKey(e.target.value)}
+                                        placeholder="Enter key..."
+                                        style={{ flex: 1 }}
+                                    />
+                                    <button
+                                        className="btn btn--secondary"
+                                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                                        onClick={async () => {
+                                            try {
+                                                addNotification({ type: 'info', message: `Testing ${provider} connection...` });
+                                                // Fetch status to refresh available_models based on the NEW key in localStorage
+                                                const res = await aiService.status();
+                                                if (res.data.available_models.includes(provider)) {
+                                                    setAiStatus({ configured: res.data.configured, models: res.data.available_models });
+                                                    addNotification({ type: 'success', message: `${provider.toUpperCase()} connection verified!` });
+                                                } else {
+                                                    addNotification({ type: 'error', message: `${provider.toUpperCase()} verification failed. Check your key.` });
+                                                }
+                                            } catch (err) {
+                                                addNotification({ type: 'error', message: "Connection test failed." });
+                                            }
+                                        }}
+                                    >
+                                        Test
+                                    </button>
+                                </div>
                             </>
                         )}
                         <button
@@ -417,148 +727,205 @@ function LearningPanel({ onBack }) {
                 </div>
             )}
 
-            {/* Top Feature Toolbar — Quick Access */}
-            <div className="assistant-toolbar">
-                {topFeatures.map((feat, i) => (
-                    <button
-                        key={i}
-                        className={`assistant-feature-btn ${loadingFeature === feat.label ? 'loading' : ''}`}
-                        onClick={feat.action}
-                        disabled={isLoading}
-                        title={feat.desc}
-                    >
-                        <span className="feature-icon">{feat.icon}</span>
-                        <span className="feature-label">{feat.label}</span>
-                    </button>
-                ))}
-                <select
-                    className="assistant-translate-select"
-                    value={translateLang}
-                    onChange={(e) => setTranslateLang(e.target.value)}
-                    title="Target language for translation"
-                >
-                    <option value="python">Python</option>
-                    <option value="javascript">JavaScript</option>
-                    <option value="typescript">TypeScript</option>
-                    <option value="java">Java</option>
-                    <option value="c">C</option>
-                    <option value="cpp">C++</option>
-                    <option value="go">Go</option>
-                    <option value="rust">Rust</option>
-                </select>
-            </div>
+            {/* GUI Preview Side Panel Removed (Integrated into Output) */}
 
-            {/* More Tools Toggle */}
-            <div className={`assistant-tools-toggle ${showAllTools ? 'active' : ''}`} onClick={() => setShowAllTools(!showAllTools)}>
-                <span>{showAllTools ? 'Close Tools' : 'Explore All AI Tools'}</span>
-                {showAllTools ? <FiChevronUp size={14} /> : <FiChevronDown size={14} />}
-            </div>
 
-            {/* Expanded Feature Categories */}
-            {showAllTools && (
-                <div className="assistant-categories">
-                    {featureCategories.map(cat => (
-                        <div key={cat.id} className={`assistant-category ${expandedCategory === cat.id ? 'expanded' : ''}`}>
-                            <button
-                                className="assistant-category-header"
-                                onClick={() => setExpandedCategory(expandedCategory === cat.id ? null : cat.id)}
-                            >
-                                <span>{cat.title}</span>
-                                <span className="category-arrow">{expandedCategory === cat.id ? '▾' : '▸'}</span>
-                            </button>
-                            {expandedCategory === cat.id && (
-                                <div className="assistant-category-grid">
-                                    {cat.features.map((feat, j) => (
-                                        <button
-                                            key={j}
-                                            className={`assistant-feature-card ${loadingFeature === feat.label ? 'loading' : ''}`}
-                                            onClick={feat.action}
-                                            disabled={isLoading}
-                                            title={feat.desc}
-                                        >
-                                            <span className="card-icon">{feat.icon}</span>
-                                            <div className="card-label-container">
-                                                <span className="card-label">{feat.label}</span>
-                                                <span className="card-desc">{feat.desc}</span>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
+            {/* Chat View — Always Visible (no tabs) */}
+            <div className="assistant-view-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+                <div className="assistant-chat-history">
+                    {chatHistory.map((msg, idx) => (
+                        <div key={idx} className={`assistant-bubble-container ${msg.role === 'user' ? 'user' : 'ai'}`}>
+                            <div className={`assistant-bubble ${msg.role}`}>
+                                {msg.reasoning && (
+                                    <details className="assistant-reasoning">
+                                        <summary>Thinking Process</summary>
+                                        <div className="reasoning-content" style={{ whiteSpace: 'pre-wrap' }}>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.reasoning}</ReactMarkdown>
+                                        </div>
+                                    </details>
+                                )}
+                                {/* --- Non-destructive complexity extraction ---
+                                    Parse complexity values from the AI's text using
+                                    read-only regex. We NEVER touch msg.content. */}
+                                {(() => {
+                                    const text = msg.content;
+                                    // Match both bold and italic formats (e.g. *Time complexity is O(n)*)
+                                    const timeMatch =
+                                        text.match(/\*\*Time Complexity\*\*\s*:?\s*([O0o]\([^)]+\))/i) ||
+                                        text.match(/Time Complexity\s*:?\s*\*?([O0o]\([^)]+\))\*?/i) ||
+                                        text.match(/Time Efficiency\s*:?\s*\*?([O0o]\([^)]+\))\*?/i);
 
-            {/* Conversation Area */}
-            <div className="assistant-chat-history">
-                {chatHistory.map((msg, idx) => (
-                    <div key={idx} className={`assistant-bubble-container ${msg.role === 'user' ? 'user' : 'ai'}`}>
-                        <div className={`assistant-bubble ${msg.role}`}>
-                            {msg.reasoning && (
-                                <details className="assistant-reasoning">
-                                    <summary>Thinking Process</summary>
-                                    <div className="reasoning-content">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.reasoning}</ReactMarkdown>
+                                    const spaceMatch =
+                                        text.match(/\*\*Space Complexity\*\*\s*:?\s*([O0o]\([^)]+\))/i) ||
+                                        text.match(/Space Complexity\s*:?\s*\*?([O0o]\([^)]+\))\*?/i) ||
+                                        text.match(/Memory Footprint\s*:?\s*\*?([O0o]\([^)]+\))\*?/i);
+
+                                    if (!timeMatch && !spaceMatch) return null;
+
+                                    const timeC = timeMatch ? timeMatch[1] : 'N/A';
+                                    const spaceC = spaceMatch ? spaceMatch[1] : 'N/A';
+
+                                    return (
+                                        <div className="assistant-complexity-badges-subtle">
+                                            {timeMatch && (
+                                                <div className="complexity-badge-quiet">
+                                                    <FiClock className="complexity-icon-quiet" size={12} />
+                                                    <span className="complexity-value-quiet">{timeC}</span>
+                                                </div>
+                                            )}
+                                            {spaceMatch && (
+                                                <div className="complexity-badge-quiet">
+                                                    <FiBox className="complexity-icon-quiet" size={12} />
+                                                    <span className="complexity-value-quiet">{spaceC}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                        code({ node, className, children, ...props }) {
+                                            const match = /language-(\w+)/.exec(className || '');
+                                            const codeStr = String(children).replace(/\n$/, '');
+                                            const isInline = !match;
+                                            const language = match ? match[1] : 'text';
+
+                                            return isInline ? (
+                                                <code className="assistant-inline-code" {...props}>{children}</code>
+                                            ) : (
+                                                <div className="assistant-code-block">
+                                                    <div className="assistant-code-header">
+                                                        <span className="assistant-code-lang">{language || 'code'}</span>
+                                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                                            <button
+                                                                className="assistant-code-action-btn"
+                                                                title="Run Code"
+                                                                onClick={() => {
+                                                                    // 1. Set GUI data if applicable
+                                                                    const guiData = getGuiData(codeStr, language);
+                                                                    if (guiData) {
+                                                                        setActiveGui(guiData);
+                                                                    }
+                                                                    // 2. Open Output Screen
+                                                                    setShowGlobalOutput(true);
+                                                                    // 3. Execution logic (for terminal output)
+                                                                    executorService.runProgram(codeStr, language);
+                                                                }}
+                                                            >
+                                                                <FiPlay size={14} style={{ color: 'var(--accent-primary)' }} />
+                                                                <span>Run</span>
+                                                            </button>
+                                                            <CopyButton content={codeStr} />
+                                                        </div>
+                                                    </div>
+                                                    <div className="assistant-code">
+                                                        <SyntaxHighlighter
+                                                            style={vscDarkPlus}
+                                                            language={language || 'plaintext'}
+                                                            PreTag="div"
+                                                            customStyle={{ margin: 0, padding: '32px', background: 'transparent', fontSize: '15.5px' }}
+                                                        >
+                                                            {codeStr}
+                                                        </SyntaxHighlighter>
+                                                    </div>
+                                                </div>
+
+                                            );
+                                        },
+                                        h3({ node, children, ...props }) {
+                                            return <MarkdownSectionHeader {...props}>{children}</MarkdownSectionHeader>;
+                                        },
+                                        h4({ node, children, ...props }) {
+                                            return <MarkdownSectionHeader {...props}>{children}</MarkdownSectionHeader>;
+                                        },
+                                        table({ children, ...props }) {
+                                            return (
+                                                <div className="assistant-table-wrapper">
+                                                    <table {...props}>
+                                                        {children}
+                                                    </table>
+                                                </div>
+                                            );
+                                        }
+                                    }}
+                                >
+                                    {msg.content}
+                                </ReactMarkdown>
+                                {msg.image && (
+                                    <div className="assistant-inline-image-container" style={{
+                                        marginTop: '24px',
+                                        borderRadius: '16px',
+                                        overflow: 'hidden',
+                                        border: '1.5px solid var(--border-primary)',
+                                        boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+                                        background: '#fff',
+                                    }}>
+                                        <div style={{
+                                            padding: '12px 18px',
+                                            background: '#f8f9fa',
+                                            borderBottom: '1px solid var(--border-primary)',
+                                            fontSize: '13px',
+                                            color: '#444',
+                                            fontWeight: 700,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.05em',
+                                        }}>
+                                            <FiGrid size={14} color="var(--accent-primary)" /> Visualization
+                                        </div>
+                                        <img
+                                            src={msg.image}
+                                            alt="AI Generated Visual"
+                                            style={{
+                                                width: '100%',
+                                                height: 'auto',
+                                                display: 'block',
+                                                maxHeight: '450px',
+                                                objectFit: 'contain',
+                                                padding: '16px',
+                                            }}
+                                        />
                                     </div>
-                                </details>
-                            )}
-                            <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                    code({ node, className, children, ...props }) {
-                                        const match = /language-(\w+)/.exec(className || '');
-                                        const codeContent = String(children).replace(/\n$/, '');
-                                        const isInline = !match;
-
-                                        return !isInline ? (
-                                            <div className="assistant-code-block">
-                                                <div className="assistant-code-header">
-                                                    <span className="assistant-code-lang">{match ? match[1] : 'text'}</span>
-                                                    <CopyButton content={codeContent} />
-                                                </div>
-                                                <div className="assistant-code">
-                                                    <SyntaxHighlighter
-                                                        style={vscDarkPlus}
-                                                        language={match ? match[1] : 'plaintext'}
-                                                        PreTag="div"
-                                                        customStyle={{ margin: 0, padding: '12px', background: 'transparent' }}
-                                                    >
-                                                        {codeContent}
-                                                    </SyntaxHighlighter>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <code className="assistant-inline-code" {...props}>{children}</code>
-                                        );
-                                    },
-                                    table({ children, ...props }) {
-                                        return (
-                                            <div style={{ overflowX: 'auto', margin: '24px 0', borderRadius: '12px', border: '1px solid var(--border-primary)' }}>
-                                                <table {...props} style={{ margin: 0, border: 'none', width: '100%' }}>
-                                                    {children}
-                                                </table>
-                                            </div>
-                                        );
-                                    }
-                                }}
-                            >
-                                {msg.content}
-                            </ReactMarkdown>
-                            <div className="assistant-meta">
-                                <span className="assistant-time">{msg.timestamp}</span>
+                                )}
+                                {/* Inline Sources — rendered as premium cards inside the chat bubble */}
+                                {msg.resources && msg.resources.length > 0 && (
+                                    <div className="assistant-sources-grid" style={{ marginTop: '12px' }}>
+                                        {msg.resources.map((res, i) => {
+                                            const colors = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#ec4899'];
+                                            const accentColor = colors[i % colors.length];
+                                            return (
+                                                <a key={i} href={res.url} target="_blank" rel="noopener noreferrer" className="assistant-source-card">
+                                                    <div className="source-card-accent" style={{ background: accentColor }}></div>
+                                                    <div className="source-card-icon" style={{ background: `${accentColor}15`, color: accentColor }}>
+                                                        <FiExternalLink size={18} />
+                                                    </div>
+                                                    <div className="source-card-info">
+                                                        <div className="source-card-title">{res.title}</div>
+                                                        <div className="source-card-desc">{res.description}</div>
+                                                    </div>
+                                                </a>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                <div className="assistant-meta">
+                                    <span className="assistant-time">{msg.timestamp}</span>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                ))}
-                {isLoading && (
-                    <div className="assistant-bubble-container ai">
-                        <div className="assistant-bubble ai loading">
-                            <div className="assistant-typing"><span></span><span></span><span></span></div>
+                    ))}
+                    {isLoading && (
+                        <div className="assistant-bubble-container ai">
+                            <div className="assistant-bubble ai loading">
+                                <div className="assistant-typing"><span></span><span></span><span></span></div>
+                            </div>
                         </div>
-                    </div>
-                )}
-                <div ref={chatEndRef} />
+                    )}
+                    <div ref={chatEndRef} />
+                </div>
             </div>
 
             {/* Footer with Quick Actions & Input */}
@@ -571,22 +938,49 @@ function LearningPanel({ onBack }) {
                     ))}
                 </div>
                 <form className="assistant-input-container" onSubmit={handleChat}>
-                    <button type="button" className="assistant-attach">
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileAttach}
+                        style={{ display: 'none' }}
+                        accept=".txt,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.h,.css,.html,.json,.md,.csv,.log,.sh,.yml,.yaml,text/*"
+                        multiple
+                    />
+                    <button type="button" className="assistant-attach" onClick={() => fileInputRef.current?.click()} title="Attach file context">
                         <FiPaperclip size={18} />
                     </button>
-                    <textarea
-                        rows="1"
-                        placeholder="Ask anything..."
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleChat(e);
-                            }
-                        }}
-                        disabled={isLoading}
-                    />
+
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 0' }}>
+                        {attachments.length > 0 && (
+                            <div className="assistant-attachments-preview">
+                                {attachments.map((att, i) => (
+                                    <div key={i} className="attachment-pill">
+                                        <span className="attachment-pill-name">{att.name}</span>
+                                        <button
+                                            type="button"
+                                            className="attachment-pill-remove"
+                                            onClick={(e) => { e.stopPropagation(); setAttachments(prev => prev.filter((_, idx) => idx !== i)); }}
+                                        >
+                                            <FiX size={12} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <textarea
+                            rows="1"
+                            placeholder="Ask anything..."
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleChat(e);
+                                }
+                            }}
+                            disabled={isLoading}
+                        />
+                    </div>
                     {isLoading ? (
                         <button type="button" className="assistant-stop active" onClick={handleStop} title="Stop generation">
                             <FiSquare size={16} fill="currentColor" />
@@ -612,15 +1006,17 @@ function LearningPanel({ onBack }) {
                     font-family: 'Inter', system-ui, -apple-system, sans-serif;
                 }
                 .assistant-header {
-                    height: 52px;
+                    height: 54px;
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    padding: 0 16px;
+                    padding: 0 18px;
                     border-bottom: 1px solid var(--border-primary);
                     flex-shrink: 0;
-                    background: linear-gradient(to bottom, var(--bg-tertiary), var(--bg-secondary)); /* Premium Gradient */
+                    background: rgba(var(--bg-tertiary-rgb), 0.85);
+                    backdrop-filter: blur(12px);
                     z-index: 10;
+                    box-shadow: 0 1px 10px rgba(0,0,0,0.2);
                 }
                 .assistant-header-left { display: flex; align-items: center; gap: 12px; }
                 .assistant-icon { 
@@ -642,100 +1038,198 @@ function LearningPanel({ onBack }) {
                 .assistant-chat-history {
                     flex: 1;
                     overflow-y: auto;
-                    padding: 20px;
+                    padding: 24px 20px;
                     display: flex;
                     flex-direction: column;
-                    gap: 24px;
+                    gap: 20px;
                     scroll-behavior: smooth;
-                    background: var(--bg-primary); /* Cleaner background for messages */
+                    background: var(--bg-primary);
                 }
-                .assistant-bubble-container { display: flex; width: 100%; animation: fadeIn 0.3s ease-out; }
-                @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                /* Subtle grid background for the chat area */
+                .assistant-chat-history::before {
+                    content: '';
+                    position: fixed;
+                    inset: 0;
+                    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.015) 1px, transparent 0);
+                    background-size: 28px 28px;
+                    pointer-events: none;
+                    z-index: 0;
+                }
+                .assistant-bubble-container {
+                    display: flex;
+                    width: 100%;
+                    animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+                    position: relative;
+                    z-index: 1;
+                }
+                @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
                 
                 .assistant-bubble-container.user { justify-content: flex-end; }
-                .assistant-bubble-container.ai { justify-content: flex-start; }
+                .assistant-bubble-container.ai { justify-content: flex-start; align-items: flex-start; }
+
+                /* AI Avatar indicator */
+                .assistant-bubble-container.ai::before {
+                    content: '✦';
+                    font-size: 13px;
+                    color: var(--accent-primary);
+                    min-width: 28px;
+                    min-height: 28px;
+                    background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.15), rgba(var(--accent-secondary-rgb), 0.1));
+                    border: 1px solid rgba(var(--accent-primary-rgb), 0.2);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin-right: 10px;
+                    flex-shrink: 0;
+                    margin-top: 2px;
+                }
 
                 .assistant-bubble {
-                    max-width: 90%;
-                    padding: 18px 24px; /* Spacious Padding */
-                    border-radius: 18px;
-                    font-size: 15px;
-                    line-height: 1.85; /* Spacious Line Height */
+                    max-width: 88%;
+                    padding: 18px 22px;
+                    border-radius: 16px;
+                    font-size: 14px;
+                    line-height: 1.8;
                     position: relative;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.06);
-                    transition: all 0.3s ease;
+                    transition: box-shadow 0.2s ease;
                 }
                 .assistant-bubble.user {
                     background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
                     color: white;
                     border-bottom-right-radius: 4px;
+                    box-shadow: 0 4px 20px rgba(var(--accent-primary-rgb), 0.3);
+                    max-width: 75%;
                 }
                 .assistant-bubble.ai {
                     color: var(--text-primary);
                     border-bottom-left-radius: 4px;
+                    background: var(--bg-secondary);
                     border: 1px solid var(--border-primary);
-                    /* Premium glass aesthetic */
-                    background: linear-gradient(165deg, rgba(var(--bg-elevated-rgb), 0.85), rgba(var(--bg-secondary-rgb), 0.95));
-                    backdrop-filter: blur(16px);
-                    box-shadow: 0 12px 40px rgba(0,0,0,0.18);
-                    padding: 16px 20px;
-                    line-height: 1.75;
+                    border-left: 4px solid var(--accent-primary);
+                    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.1);
+                    line-height: 1.8;
                     font-size: 14.5px;
+                    backdrop-filter: blur(10px);
+                }
+                .assistant-bubble.ai:hover {
+                    box-shadow: 0 6px 32px rgba(0,0,0,0.16);
                 }
                 
                 /* Selection colors */
                 .assistant-bubble::selection { background: var(--accent-primary); color: white; }
                 
                 /* Professional Typography */
-                .assistant-bubble.ai h1, .assistant-bubble.ai h2, .assistant-bubble.ai h3 {
-                    margin: 1.2em 0 0.6em 0;
-                    color: var(--accent-primary);
+                .assistant-bubble.ai h1, .assistant-bubble.ai h2, .assistant-bubble.ai h3, .assistant-bubble.ai h4 {
+                    color: var(--text-primary);
                     font-weight: 700;
-                    letter-spacing: -0.01em;
+                    margin: 1.2em 0 0.5em 0;
+                    line-height: 1.3;
                 }
-                .assistant-bubble.ai h1:first-child, .assistant-bubble.ai h2:first-child { margin-top: 0; }
-                .assistant-bubble.ai h1 { font-size: 1.55em; border-bottom: 1px solid var(--border-primary); padding-bottom: 8px; }
-                .assistant-bubble.ai h2 { font-size: 1.35em; }
-                .assistant-bubble.ai h3 { font-size: 1.15em; }
-                .assistant-bubble.ai p { margin-bottom: 0.8em; }
+                .assistant-bubble.ai h1:first-child, .assistant-bubble.ai h2:first-child, .assistant-bubble.ai h3:first-child { margin-top: 0; }
+                .assistant-bubble.ai h1 { font-size: 1.4em; padding-bottom: 8px; border-bottom: 1px solid var(--border-primary); margin-bottom: 12px; color: var(--accent-primary); }
+                .assistant-bubble.ai h2 { font-size: 1.2em; color: var(--accent-primary); }
+                .assistant-bubble.ai h3 { font-size: 1.05em; color: var(--text-secondary); }
+                .assistant-bubble.ai h4 { font-size: 0.95em; color: var(--text-muted); }
+                .assistant-bubble.ai p { margin: 0 0 0.9em 0; }
                 .assistant-bubble.ai p:last-child { margin-bottom: 0; }
+                .assistant-bubble.ai strong { color: var(--text-primary); font-weight: 700; }
+                .assistant-bubble.ai em { color: var(--text-secondary); font-style: italic; }
                 
-                .assistant-bubble.ai ul, .assistant-bubble.ai ol { margin-bottom: 0.8em; padding-left: 20px; }
-                .assistant-bubble.ai li { margin-bottom: 1.5em; position: relative; padding-left: 6px; }
-                .assistant-bubble.ai li::marker { color: var(--accent-primary); padding-right: 8px; }
-                .assistant-bubble.ai strong { color: var(--accent-primary); font-weight: 700; }
+                .assistant-bubble.ai ul, .assistant-bubble.ai ol { margin: 0.6em 0 1em 0; padding-left: 22px; }
+                .assistant-bubble.ai li { margin-bottom: 0.5em; padding-left: 4px; line-height: 1.7; }
+                .assistant-bubble.ai li::marker { color: var(--accent-primary); font-weight: 700; }
+                
                 .assistant-bubble.ai blockquote {
-                    border-left: 4px solid var(--accent-primary);
-                    margin: 20px 0; padding: 12px 18px;
-                    background: rgba(var(--accent-primary-rgb), 0.05);
-                    font-style: italic; color: var(--text-secondary);
+                    border-left: 3px solid var(--accent-primary);
+                    margin: 16px 0;
+                    padding: 10px 16px;
+                    background: rgba(var(--accent-primary-rgb), 0.04);
                     border-radius: 0 8px 8px 0;
+                    color: var(--text-secondary);
+                    font-style: italic;
                 }
-                .assistant-bubble.ai a { color: var(--accent-primary); text-decoration: none; font-weight: 600; border-bottom: 1px dotted var(--accent-primary); }
-                .assistant-bubble.ai a:hover { border-bottom-style: solid; opacity: 0.8; }
+                .assistant-bubble.ai a {
+                    color: var(--accent-primary);
+                    text-decoration: none;
+                    font-weight: 600;
+                    border-bottom: 1px solid rgba(var(--accent-primary-rgb), 0.3);
+                    transition: border-color 0.2s;
+                }
+                .assistant-bubble.ai a:hover { border-bottom-color: var(--accent-primary); opacity: 0.85; }
+
+                .assistant-meta {
+                    margin-top: 12px;
+                    padding-top: 10px;
+                    border-top: 1px solid rgba(var(--border-primary-rgb, 255,255,255), 0.06);
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                }
+                .assistant-time {
+                    font-size: 10px;
+                    color: var(--text-muted);
+                    letter-spacing: 0.04em;
+                }
                 
-                /* Tables */
-                /* Tables */
+                /* Tables - Premium Glass Aesthetic */
+                .assistant-table-wrapper {
+                    overflow-x: auto;
+                    margin: 24px 0;
+                    border-radius: 12px;
+                    border: 1px solid var(--border-primary);
+                    background: rgba(var(--bg-tertiary-rgb), 0.2);
+                    backdrop-filter: blur(4px);
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+                    animation: table-slide-in 0.5s cubic-bezier(0.2, 0, 0, 1) both;
+                }
+                @keyframes table-slide-in {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
                 .assistant-bubble.ai table {
-                    width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px;
-                    background: rgba(var(--bg-tertiary-rgb), 0.3);
+                    width: 100%;
+                    border-collapse: separate;
+                    border-spacing: 0;
+                    font-size: 13.5px;
                 }
-                .assistant-bubble.ai th, .assistant-bubble.ai td {
-                    padding: 14px 18px; border-bottom: 1px solid var(--border-primary); text-align: left;
+                .assistant-bubble.ai td {
+                    padding: 14px 20px;
+                    border-bottom: 1px solid var(--border-primary);
+                    text-align: left;
                     line-height: 1.6;
+                    vertical-align: top;
                 }
-                .assistant-bubble.ai th { 
-                    background: rgba(var(--bg-tertiary-rgb), 0.8); 
-                    font-weight: 700; color: var(--text-primary); 
-                    text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px;
+                .assistant-bubble.ai th {
+                    background: linear-gradient(to bottom, rgba(var(--accent-primary-rgb), 0.1), rgba(var(--accent-primary-rgb), 0.02));
+                    font-weight: 700;
+                    color: var(--accent-primary);
+                    text-transform: uppercase;
+                    font-size: 11px;
+                    letter-spacing: 1px;
+                    border-bottom: 2px solid rgba(var(--accent-primary-rgb), 0.2);
                 }
                 .assistant-bubble.ai tr:last-child td { border-bottom: none; }
-                .assistant-bubble.ai tr:hover td { background: rgba(var(--bg-tertiary-rgb), 0.5); }
-                .assistant-bubble.ai td p, .assistant-bubble.ai th p {
-                    margin-bottom: 12px;
+                .assistant-bubble.ai tr:hover td {
+                    background: rgba(var(--accent-primary-rgb), 0.03);
+                    transition: background 0.2s ease;
                 }
-                .assistant-bubble.ai td p:last-child, .assistant-bubble.ai th p:last-child {
+                .assistant-bubble.ai td strong {
+                    color: var(--accent-secondary);
+                }
+                .assistant-bubble.ai td p {
+                    margin-bottom: 4px;
+                }
+                .assistant-bubble.ai td p:last-child {
                     margin-bottom: 0;
+                }
+                .assistant-bubble.ai td code {
+                    white-space: pre-wrap;
+                    word-break: break-all;
+                }
+                .assistant-bubble.ai td .assistant-code-block {
+                    margin: 8px 0;
+                    min-width: 200px;
                 }
  
                 /* Footer */
@@ -754,21 +1248,38 @@ function LearningPanel({ onBack }) {
                 }
                 .assistant-quick-actions::-webkit-scrollbar { display: none; }
                 .assistant-capsule {
-                    white-space: nowrap; padding: 6px 14px; border-radius: 20px;
-                    background: var(--bg-tertiary); border: 1px solid var(--border-primary);
-                    color: var(--text-secondary); font-size: 12px; font-weight: 500;
-                    cursor: pointer; transition: all 0.2s;
+                    white-space: nowrap; padding: 8px 16px; border-radius: 20px;
+                    background: linear-gradient(135deg, var(--bg-tertiary), rgba(var(--accent-primary-rgb), 0.05));
+                    border: 1px solid rgba(var(--accent-primary-rgb), 0.15);
+                    color: var(--text-secondary); font-size: 12px; font-weight: 600;
+                    cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    letter-spacing: 0.02em;
+                    position: relative;
+                    overflow: hidden;
                 }
-                .assistant-capsule:hover { border-color: var(--accent-primary); color: var(--text-primary); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+                .assistant-capsule::before {
+                    content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+                    background: linear-gradient(90deg, transparent, rgba(var(--accent-primary-rgb), 0.08), transparent);
+                    transition: left 0.5s ease;
+                }
+                .assistant-capsule:hover::before { left: 100%; }
+                .assistant-capsule:hover {
+                    border-color: var(--accent-primary);
+                    color: var(--accent-primary);
+                    background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.12), rgba(var(--accent-primary-rgb), 0.04));
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 16px rgba(var(--accent-primary-rgb), 0.15);
+                }
  
-                .assistant-input-container {
-                    background: var(--bg-tertiary); /* Contrast against panel */
+                 .assistant-input-container {
+                    background: rgba(var(--bg-tertiary-rgb), 0.7);
                     border: 1px solid var(--border-primary);
-                    border-radius: 28px; /* Clean Pill Shape */
-                    padding: 4px 6px 4px 18px;
-                    display: flex; align-items: center; gap: 12px;
+                    border-radius: 24px;
+                    padding: 6px 8px 6px 20px;
+                    display: flex; align-items: center; gap: 14px;
                     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+                    backdrop-filter: blur(10px);
+                    box-shadow: inset 0 1px 3px rgba(0,0,0,0.2), 0 4px 12px rgba(0,0,0,0.15);
                 }
                 .assistant-input-container:focus-within { 
                     background: var(--bg-primary);
@@ -777,10 +1288,24 @@ function LearningPanel({ onBack }) {
                     transform: translateY(-1px);
                 }
                 .assistant-input-container textarea {
-                    font-size: 15px; line-height: 1.5; color: var(--text-primary);
+                    font-size: 14px; line-height: 1.5; color: var(--text-primary);
                     background: transparent; border: none; outline: none; flex: 1;
-                    padding: 8px 0;
+                    padding: 4px 0; resize: none; max-height: 120px; overflow-y: auto;
                 }
+                .assistant-attachments-preview {
+                    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; padding-top: 4px;
+                }
+                .attachment-pill {
+                    display: flex; align-items: center; gap: 4px; padding: 2px 8px;
+                    background: rgba(var(--accent-primary-rgb), 0.15); border: 1px solid rgba(var(--accent-primary-rgb), 0.3);
+                    border-radius: 12px; font-size: 11px; color: var(--accent-primary);
+                }
+                .attachment-pill-name { max-width: 100px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+                .attachment-pill-remove { 
+                    display: flex; align-items: center; justify-content: center; background: transparent; border: none; 
+                    color: inherit; cursor: pointer; padding: 0; opacity: 0.7; transition: opacity 0.2s;
+                }
+                .attachment-pill-remove:hover { opacity: 1; color: var(--error); }
                 .assistant-attach, .assistant-send {
                     background: transparent; border: none; color: var(--text-muted);
                     cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -796,13 +1321,35 @@ function LearningPanel({ onBack }) {
                 }
                 .assistant-stop:hover { background: rgba(248, 81, 73, 0.2); transform: scale(1.1); }
 
-                .assistant-typing { display: flex; gap: 6px; padding: 8px 12px; background: rgba(var(--bg-tertiary-rgb), 0.5); border-radius: 12px; width: fit-content; }
+                .assistant-typing {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 4px 8px;
+                    height: 24px;
+                }
                 .assistant-typing span {
-                    width: 8px; height: 8px; background: var(--text-muted); opacity: 0.4;
-                    border-radius: 50%; animation: typing 1.4s infinite ease-in-out both;
+                    width: 6px; 
+                    height: 6px; 
+                    background: var(--accent-primary); 
+                    border-radius: 50%; 
+                    animation: modernTyping 1.2s infinite ease-in-out both;
                 }
                 .assistant-typing span:nth-child(1) { animation-delay: -0.32s; }
                 .assistant-typing span:nth-child(2) { animation-delay: -0.16s; }
+                .assistant-typing span:nth-child(3) { animation-delay: 0s; }
+                
+                @keyframes modernTyping {
+                    0%, 80%, 100% {
+                        transform: scale(0.6) translateY(0);
+                        opacity: 0.4;
+                    }
+                    40% {
+                        transform: scale(1) translateY(-4px);
+                        opacity: 1;
+                        box-shadow: 0 4px 8px rgba(var(--accent-primary-rgb), 0.4);
+                    }
+                }
                 
                 .assistant-reasoning {
                     margin-bottom: 16px;
@@ -828,44 +1375,45 @@ function LearningPanel({ onBack }) {
                 }
                 @keyframes slideDown { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
-                /* VS Code Style Code Blocks -> Mini Terminal */
+                /* VS Code Style Code Blocks - Composed */
                 .assistant-code-block {
-                    margin: 20px 0;
-                    border: 1px solid #333;
-                    border-radius: 6px;
+                    margin: 40px 0;
+                    border-radius: 12px;
                     overflow: hidden;
-                    background: #0d0d0d; /* Dark Terminal Background */
-                    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-                    font-family: 'Fira Code', monospace;
+                    background: #09090b;
+                    border: 1px solid rgba(255, 255, 255, 0.04);
+                    font-family: 'JetBrains Mono', monospace;
                 }
                 .assistant-code-header {
-                    display: flex; justify-content: space-between; align-items: center;
-                    padding: 8px 12px; background: #1f1f1f; border-bottom: 1px solid #333;
-                    height: 36px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 10px 20px;
+                    background: rgba(255, 255, 255, 0.02);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+                    height: 44px;
                 }
                 .assistant-code-lang {
-                    font-size: 11px; font-weight: 700; text-transform: uppercase; color: #888; letter-spacing: 1px;
-                    display: flex; align-items: center; gap: 8px;
+                    font-size: 10px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    color: rgba(255, 255, 255, 0.3);
+                    letter-spacing: 0.2em;
                 }
-                .assistant-code-lang::before {
-                    content: none;
-                }
-
-                .assistant-copy-btn {
-                    display: flex; align-items: center; gap: 6px; background: transparent; border: none;
-                    color: #858585; cursor: pointer; padding: 4px 8px; border-radius: 4px;
-                    font-size: 11px; font-weight: 500; transition: all 0.2s;
-                }
-                .assistant-copy-btn:hover { background: #3c3c3c; color: #cccccc; }
-                .assistant-copy-btn.copied { color: #3fb950; }
                 .assistant-code { 
-                    font-size: 13px; line-height: 1.5; font-family: 'JetBrains Mono', 'Fira Code', monospace; 
-                    padding: 4px 0; /* Let syntax highlighter handle padding */
+                    font-size: 14.5px;
+                    line-height: 1.7;
                 }
-                .assistant-inline-code { 
-                    background: rgba(var(--accent-primary-rgb), 0.1); color: var(--accent-primary);
-                    padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.9em;
-                    border: 1px solid rgba(var(--accent-primary-rgb), 0.2);
+                .assistant-inline-code {
+                    background: rgba(var(--accent-primary-rgb), 0.15);
+                    color: #fff;
+                    padding: 3px 8px;
+                    border-radius: 6px;
+                    font-family: 'JetBrains Mono', monospace;
+                    font-size: 0.9em;
+                    border: 1px solid rgba(var(--accent-primary-rgb), 0.3);
+                    font-weight: 600;
+                    letter-spacing: 0.02em;
                 }
                 
                 .assistant-meta {
@@ -874,6 +1422,104 @@ function LearningPanel({ onBack }) {
                 .assistant-model { font-size: 11px; opacity: 0.5; font-style: italic; display: flex; align-items: center; gap: 4px; }
                 .assistant-model::before { content: ''; width: 6px; height: 6px; background: currentColor; border-radius: 50%; opacity: 0.5; }
                 .assistant-time { font-size: 11px; opacity: 0.5; font-weight: 500; }
+                
+                /* Tables Styling - Composed */
+                 .assistant-table-wrapper {
+                    margin: 40px 0;
+                    overflow-x: auto;
+                    border-radius: 12px;
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    background: rgba(255, 255, 255, 0.01);
+                    backdrop-filter: blur(8px);
+                }
+                .assistant-table-wrapper table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 14px;
+                    text-align: left;
+                }
+                .assistant-table-wrapper th {
+                    background: rgba(255, 255, 255, 0.015);
+                    color: var(--accent-primary);
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.15em;
+                    font-size: 10px;
+                    padding: 18px 24px;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                }
+                .assistant-table-wrapper td {
+                    padding: 16px 24px;
+                    color: rgba(255, 255, 255, 0.8);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+                }
+                .assistant-table-wrapper tr:last-child td {
+                    border-bottom: none;
+                }
+                .assistant-table-wrapper tr:hover td {
+                    background: rgba(255, 255, 255, 0.01);
+                    color: #fff;
+                }
+
+                /* Executive Summary Section */
+                .section-executive-summary {
+                    margin: 64px 0 32px 0;
+                    padding: 24px;
+                    background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.08), transparent);
+                    border-radius: 16px;
+                    border-left: 4px solid var(--accent-primary);
+                }
+                .section-title-executive {
+                    font-size: 14px;
+                    font-weight: 800;
+                    letter-spacing: 0.1em;
+                    text-transform: uppercase;
+                    color: var(--accent-primary);
+                    display: block;
+                    margin-bottom: 8px;
+                }
+
+                /* Premium Complexity Badges */
+                .assistant-complexity-badges-prominent {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 12px;
+                    margin: 40px 0;
+                }
+                .complexity-badge-premium {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 14px 20px;
+                    border-radius: 12px;
+                    background: rgba(255, 255, 255, 0.03);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    min-width: 180px;
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .complexity-badge-premium:hover {
+                    background: rgba(var(--accent-primary-rgb), 0.1);
+                    border-color: rgba(var(--accent-primary-rgb), 0.3);
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                }
+                .complexity-badge-premium .complexity-icon {
+                    color: var(--accent-primary);
+                    filter: drop-shadow(0 0 8px rgba(var(--accent-primary-rgb), 0.4));
+                }
+                .complexity-badge-premium .complexity-label {
+                    font-size: 10px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.1em;
+                    color: rgba(255, 255, 255, 0.4);
+                }
+                .complexity-badge-premium .complexity-value {
+                    font-size: 15px;
+                    font-weight: 800;
+                    color: #fff;
+                    font-family: 'JetBrains Mono', monospace;
+                }
                 
                 /* Custom scrollbar for chat */
                 .assistant-chat-history::-webkit-scrollbar { width: 6px; }
@@ -904,55 +1550,180 @@ function LearningPanel({ onBack }) {
                     transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1);
                 }
 
-                .assistant-tools-toggle {
-                    display: flex; align-items: center; justify-content: center; gap: 8px;
-                    padding: 12px 16px; margin: 10px 16px; border-radius: 12px;
-                    background: rgba(var(--bg-tertiary-rgb), 0.5);
-                    border: 1px dashed var(--border-primary);
-                    color: var(--text-secondary); font-size: 13px; font-weight: 600;
-                    cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                    backdrop-filter: blur(4px);
+                ${cloudGlow}
+
+                /* Composed Elegance Styles */
+                .assistant-bubble.ai {
+                    background: transparent;
+                    border: none;
+                    padding: 0 12px;
+                    margin: 24px 0; 
+                    line-height: 1.85;
+                    max-width: 100%;
                 }
-                .assistant-tools-toggle:hover {
-                    background: rgba(var(--accent-primary-rgb), 0.1);
-                    border: 1px solid var(--accent-primary);
+                .assistant-bubble.ai p {
+                    margin-bottom: 32px;
+                    font-size: 15.5px;
+                    color: rgba(255, 255, 255, 0.85);
+                    letter-spacing: 0.015em;
+                }
+                .assistant-bubble.ai .markdown-content em {
                     color: var(--accent-primary);
-                    transform: translateY(-1px);
-                    box-shadow: 0 4px 12px rgba(var(--accent-primary-rgb), 0.1);
+                    opacity: 0.9;
+                }
+
+                .assistant-complexity-badges-subtle {
+                    display: flex;
+                    gap: 16px;
+                    margin: 8px 0 20px 0;
+                    opacity: 0.6;
+                    font-size: 12px;
+                }
+                .complexity-badge-quiet {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    color: var(--text-muted);
+                }
+                .complexity-icon-quiet {
+                    color: var(--accent-primary);
+                }
+                .complexity-value-quiet {
+                    font-family: 'JetBrains Mono', monospace;
+                    font-weight: 500;
+                }
+
+                .universal-gui-container {
+                    margin: 64px 0;
+                    border-radius: 24px;
+                    overflow: hidden;
+                    border: 1px solid rgba(var(--accent-primary-rgb), 0.15);
+                    background: var(--bg-tertiary);
+                    box-shadow: 0 12px 60px rgba(0,0,0,0.2);
+                    animation: cloud-slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+                }
+                @keyframes cloud-slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+
+                .universal-gui-frame {
+                    width: 100%;
+                    height: 550px; /* Taller for professional app feel */
+                    border: none;
+                    background: #fff;
+                }
+
+                .gui-bar {
+                    background: rgba(var(--bg-tertiary-rgb), 0.9);
+                    padding: 16px 24px;
+                    display: flex;
+                    align-items: center;
+                    gap: 16px;
+                    border-bottom: 1px solid rgba(var(--accent-primary-rgb), 0.1);
+                    backdrop-filter: blur(12px);
+                }
+                .section-radical-simplicity {
+                    margin: 48px 0 24px 0;
+                    padding-bottom: 8px;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                }
+                .section-title-radical {
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 0.15em;
+                    text-transform: uppercase;
+                    color: var(--accent-primary);
+                    opacity: 0.6;
+                }
+
+                .gui-dot { width: 10px; height: 10px; background: #ff5f56; border-radius: 50%; opacity: 0.8; }
+                .gui-stream-placeholder { 
+                    height: 100%; display: flex; flex-direction: column; align-items: center; 
+                    justify-content: center; background: #111; color: #444; gap: 16px;
+                }
+
+                /* --- Integrated GUI Styles moved to OutputPanel --- */
+                .assistant-code-action-btn {
+                    display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px;
+                    background: rgba(var(--accent-primary-rgb), 0.1); border: 1px solid rgba(var(--accent-primary-rgb), 0.2);
+                    color: var(--text-primary); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+                    text-transform: uppercase; letter-spacing: 0.05em;
+                }
+                .assistant-code-action-btn:hover {
+                    background: var(--accent-primary); color: white; border-color: var(--accent-primary);
+                    transform: translateY(-1px); box-shadow: 0 4px 12px rgba(var(--accent-primary-rgb), 0.3);
+                }
+
+                
+                .performance-metrics-tag {
+                    margin-top: 48px;
+                    opacity: 0.4;
+                    transition: opacity 0.3s;
+                }
+                .performance-metrics-tag:hover { opacity: 1; }
+                .performance-metrics-tag summary {
+                    font-size: 11px; font-weight: 700; color: var(--text-muted); cursor: pointer;
+                    list-style: none; text-transform: uppercase; letter-spacing: 0.1em;
+                }
+
+                .assistant-tools-toggle {
+                    display: flex; align-items: center; justify-content: center; gap: 10px;
+                    padding: 14px 20px; margin: 12px 16px; border-radius: 14px;
+                    background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.06), rgba(var(--bg-tertiary-rgb), 0.6));
+                    border: 1px solid rgba(var(--accent-primary-rgb), 0.15);
+                    color: var(--text-secondary); font-size: 13px; font-weight: 700;
+                    cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    backdrop-filter: blur(8px);
+                    letter-spacing: 0.03em;
+                    position: relative;
+                    overflow: hidden;
+                }
+                .assistant-tools-toggle::before {
+                    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+                    background: radial-gradient(circle, rgba(var(--accent-primary-rgb), 0.06) 0%, transparent 70%);
+                    opacity: 0; transition: opacity 0.4s;
+                }
+                .assistant-tools-toggle:hover::before { opacity: 1; }
+                .assistant-tools-toggle:hover {
+                    background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.15), rgba(var(--accent-primary-rgb), 0.05));
+                    border-color: var(--accent-primary);
+                    color: var(--accent-primary);
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(var(--accent-primary-rgb), 0.15);
                 }
                 .assistant-tools-toggle.active {
-                    background: var(--accent-primary);
+                    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
                     border: 1px solid var(--accent-primary);
                     color: white;
                     border-style: solid;
+                    box-shadow: 0 4px 16px rgba(var(--accent-primary-rgb), 0.3);
                 }
-                .assistant-tools-toggle span { display: flex; align-items: center; gap: 6px; }
+                .assistant-tools-toggle span { display: flex; align-items: center; gap: 8px; }
                 .assistant-tools-toggle svg { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
                 .assistant-tools-toggle.active svg { transform: rotate(180deg); }
 
                 .assistant-categories { 
-                    background: var(--bg-secondary); 
+                    background: linear-gradient(180deg, var(--bg-secondary), var(--bg-primary)); 
                     border-top: 1px solid var(--border-primary);
-                    padding: 8px 0;
+                    padding: 12px 0;
                     animation: slideIn 0.3s ease-out;
                 }
                 @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 
                 .assistant-category {
-                    margin: 0 16px 8px 16px;
-                    border-radius: 12px;
+                    margin: 0 16px 10px 16px;
+                    border-radius: 14px;
                     overflow: hidden;
                     border: 1px solid transparent;
                     transition: all 0.3s;
                 }
                 .assistant-category.expanded {
-                    background: rgba(var(--bg-tertiary-rgb), 0.3);
-                    border-color: var(--border-secondary);
+                    background: linear-gradient(165deg, rgba(var(--bg-tertiary-rgb), 0.4), rgba(var(--accent-primary-rgb), 0.03));
+                    border-color: rgba(var(--accent-primary-rgb), 0.12);
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
                 }
 
                 .assistant-category-header {
                     width: 100%;
-                    padding: 12px 16px; 
+                    padding: 14px 18px; 
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
@@ -962,56 +1733,244 @@ function LearningPanel({ onBack }) {
                     font-size: 13px; font-weight: 700; 
                     cursor: pointer; transition: all 0.2s;
                     text-transform: uppercase;
-                    letter-spacing: 0.05em;
+                    letter-spacing: 0.06em;
+                    position: relative;
                 }
-                .assistant-category-header:hover { background: rgba(var(--bg-tertiary-rgb), 0.5); color: var(--text-primary); }
+                .assistant-category-header:hover { background: rgba(var(--accent-primary-rgb), 0.04); color: var(--text-primary); }
                 .assistant-category.expanded .assistant-category-header { color: var(--accent-primary); }
 
                 .assistant-category-grid {
                     display: flex;
                     flex-direction: column;
-                    gap: 10px;
+                    gap: 8px;
                     padding: 0 16px 16px 16px;
                     animation: fadeIn 0.3s ease-out;
                 }
 
                 .assistant-feature-card {
                     display: flex; 
-                    flex-direction: row; /* Horizontal layout for list style */
+                    flex-direction: row;
                     align-items: center;
                     gap: 16px; 
-                    padding: 12px 16px; 
+                    padding: 14px 18px; 
                     border-radius: 12px;
-                    border: 1px solid var(--border-primary); 
-                    background: var(--bg-primary);
+                    border: 1px solid rgba(var(--accent-primary-rgb), 0.08); 
+                    background: linear-gradient(135deg, var(--bg-primary), rgba(var(--accent-primary-rgb), 0.02));
                     color: var(--text-primary); text-align: left;
-                    cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
                     position: relative;
                     overflow: hidden;
                 }
                 .assistant-feature-card::before {
                     content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
-                    background: var(--accent-primary); opacity: 0; transition: opacity 0.2s;
+                    background: linear-gradient(180deg, var(--accent-primary), var(--accent-secondary));
+                    opacity: 0; transition: opacity 0.25s;
                 }
+                .assistant-feature-card::after {
+                    content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+                    background: linear-gradient(90deg, transparent, rgba(var(--accent-primary-rgb), 0.04), transparent);
+                    transition: left 0.6s ease;
+                }
+                .assistant-feature-card:hover::after { left: 100%; }
                 .assistant-feature-card:hover { 
-                    border-color: var(--accent-primary); 
-                    background: var(--bg-elevated); 
+                    border-color: rgba(var(--accent-primary-rgb), 0.3); 
+                    background: linear-gradient(135deg, var(--bg-elevated), rgba(var(--accent-primary-rgb), 0.06)); 
                     transform: translateX(4px); 
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+                    box-shadow: 0 6px 20px rgba(0,0,0,0.12); 
                 }
                 .assistant-feature-card:hover::before { opacity: 1; }
                 
-                .card-icon { font-size: 20px; flex-shrink: 0; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); }
-                .card-label-container { display: flex; flex-direction: column; gap: 2px; }
+                .card-icon { font-size: 22px; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25)); transition: transform 0.3s; }
+                .assistant-feature-card:hover .card-icon { transform: scale(1.15); }
+                .card-label-container { display: flex; flex-direction: column; gap: 3px; }
                 .card-label { font-weight: 700; font-size: 13px; color: var(--text-primary); }
                 .card-desc { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
 
                 /* Smooth category transitions */
                 .category-arrow { transition: transform 0.3s; font-size: 10px; opacity: 0.5; }
-                .assistant-category.expanded .category-arrow { transform: rotate(90deg); opacity: 1; }
+                .assistant-category.expanded .category-arrow { transform: rotate(90deg); opacity: 1; color: var(--accent-primary); }
+
+                /* Tab Styles */
+                .assistant-tabs {
+                    display: flex;
+                    gap: 4px;
+                    padding: 4px 12px;
+                    background: var(--bg-tertiary);
+                    border-bottom: 1px solid var(--border-primary);
+                    overflow-x: auto;
+                    scrollbar-width: none;
+                }
+                .assistant-tabs::-webkit-scrollbar { display: none; }
+                
+                .assistant-tab {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 16px;
+                    border: none;
+                    background: transparent;
+                    color: var(--text-muted);
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    white-space: nowrap;
+                    border-radius: 8px;
+                    transition: all 0.2s;
+                }
+                .assistant-tab:hover {
+                    color: var(--text-primary);
+                    background: rgba(var(--accent-primary-rgb), 0.05);
+                }
+                .assistant-tab.active {
+                    color: var(--accent-primary);
+                    background: rgba(var(--accent-primary-rgb), 0.1);
+                }
+
+                /* Specialized Views */
+                .assistant-specialized-view {
+                    flex: 1;
+                    padding: 16px;
+                    overflow-y: auto;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .assistant-empty-view {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 16px;
+                    color: var(--text-muted);
+                    text-align: center;
+                    padding: 40px;
+                }
+                .assistant-empty-view h3 { color: var(--text-primary); margin: 0; }
+                .assistant-empty-view p { font-size: 13px; max-width: 240px; margin: 0; }
+
+                .assistant-content-area {
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: var(--text-primary);
+                }
+
+                .assistant-sources-grid {
+                    display: grid;
+                    grid-template-columns: 1fr;
+                    gap: 12px;
+                }
+                 .assistant-source-card {
+                    display: flex;
+                    align-items: center;
+                    gap: 20px;
+                    padding: 18px;
+                    background: rgba(var(--bg-secondary-rgb), 0.5);
+                    border: 1px solid var(--border-primary);
+                    border-radius: 16px;
+                    text-decoration: none;
+                    color: inherit;
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    position: relative;
+                    transition: all 0.2s ease;
+                    position: relative;
+                }
+                .assistant-source-card:hover {
+                    border-color: var(--accent-primary);
+                    background: var(--bg-elevated);
+                    transform: translateX(4px);
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+                }
+                .source-card-accent {
+                    position: absolute;
+                    left: 0;
+                    top: 12px;
+                    bottom: 12px;
+                    width: 3px;
+                    border-radius: 0 2px 2px 0;
+                    background: var(--accent-primary);
+                    opacity: 0.8;
+                }
+                .source-card-icon {
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: rgba(var(--accent-primary-rgb), 0.1) !important;
+                    color: var(--accent-primary) !important;
+                    flex-shrink: 0;
+                }
+                .source-card-info {
+                    flex: 1;
+                    min-width: 0;
+                }
+                .source-card-title {
+                    font-weight: 700;
+                    font-size: 15px;
+                    color: var(--text-primary);
+                    margin-bottom: 4px;
+                    letter-spacing: -0.01em;
+                }
+                .source-card-desc {
+                    font-size: 12px;
+                    color: var(--text-muted);
+                    line-height: 1.4;
+                    display: -webkit-box;
+                    -webkit-line-clamp: 2;
+                    -webkit-box-orient: vertical;
+                    overflow: hidden;
+                }
+
+                .assistant-complexity-badges {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                    gap: 12px;
+                    margin: 24px 0;
+                }
+                .complexity-badge {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 12px 16px;
+                    border-radius: 12px;
+                    background: rgba(var(--bg-tertiary-rgb), 0.3);
+                    border: 1px solid var(--border-primary);
+                    transition: all 0.2s ease;
+                }
+                .complexity-badge:hover {
+                    border-color: var(--accent-primary);
+                    background: rgba(var(--bg-tertiary-rgb), 0.5);
+                    transform: translateY(-2px);
+                }
+                .complexity-icon {
+                    color: var(--accent-primary);
+                    opacity: 0.8;
+                }
+                .complexity-info {
+                    display: flex;
+                    flex-direction: column;
+                }
+                .complexity-label {
+                    font-size: 10px;
+                    color: var(--text-muted);
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                }
+                .complexity-value {
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: var(--text-primary);
+                    font-family: var(--font-mono);
+                }
+                
+                /* Cleanup legacy complexity styles */
+                .time-badge, .space-badge { background: none; border-top: none; }
+                .time-badge .complexity-icon, .space-badge .complexity-icon { background: none; padding: 0; box-shadow: none; }
 
             `}</style>
-        </div>
+        </div >
     );
 }
 

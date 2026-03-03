@@ -4,17 +4,18 @@ import { useLearningStore, useFileStore, useUIStore } from '../store';
 import aiHubService from '../services/aiHubService';
 
 const ReviewPanel = () => {
-    const {
-        reviewResults,
-        isReviewing,
-        setReviewResults,
-        setReviewing
-    } = useLearningStore();
+    const reviewResults = useLearningStore(state => state.reviewResults);
+    const isReviewing = useLearningStore(state => state.isReviewing);
+    const setReviewResults = useLearningStore(state => state.setReviewResults);
+    const setReviewing = useLearningStore(state => state.setReviewing);
 
-    const { activeFileId, files } = useFileStore();
-    const { addNotification } = useUIStore();
+    const activeFileId = useFileStore(state => state.activeFileId);
+    const activeFile = useFileStore(
+        state => state.files.find(f => f.id === state.activeFileId),
+        (a, b) => a?.id === b?.id && a?.content === b?.content && a?.language === b?.language
+    );
 
-    const activeFile = files.find(f => f.id === activeFileId);
+    const addNotification = useUIStore(state => state.addNotification);
 
     const handleReview = async () => {
         if (!activeFile) return;

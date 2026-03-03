@@ -49,6 +49,8 @@ def search_extensions():
         response.raise_for_status()
         return jsonify(response.json())
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': 'Failed to fetch extensions', 'details': str(e)}), 500
 
 @extension_proxy_bp.route('/install', methods=['POST'])

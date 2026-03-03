@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import {
     FiPlus, FiUploadCloud, FiSave, FiSettings, FiChevronLeft, FiChevronRight,
-    FiPlay, FiTerminal, FiCode, FiX, FiCheckCircle, FiAlertCircle, FiSidebar, FiFolder
+    FiTerminal, FiCode, FiX, FiCheckCircle, FiAlertCircle, FiSidebar, FiFolder, FiUser,
+    FiMaximize2, FiMinimize2, FiExternalLink, FiMessageSquare, FiZap, FiImage, FiGrid
 } from 'react-icons/fi';
 import {
-    useUIStore, useFileStore, useExecutionStore,
-    useNotesStore, useSettingsStore
+    useUIStore, useFileStore, useSettingsStore
 } from './store';
 import { collaborationService } from './services/collaborationService';
-
-import { executorService } from './services/executorService';
+import { authService } from './services/authService';
+import { audioManager } from './services/audioManager';
 
 // Refactored Components
 import FileExplorer from './components/FileExplorer';
@@ -21,10 +21,13 @@ import StatusBar from './components/StatusBar';
 import Notifications from './components/Notifications';
 import SyncManager from './components/SyncManager';
 import RemoteControlOverlay from './components/RemoteControlOverlay';
+import ActivityBar from './components/ActivityBar';
+import { StickerOverlay, StickerUploadButton } from './components/StickerOverlay';
 
 // Lazy loaded modals
 const SettingsModal = lazy(() => import('./components/SettingsModal.jsx'));
 const NewFileModal = lazy(() => import('./components/NewFileModal.jsx'));
+const AuthModal = lazy(() => import('./components/AuthModal.jsx'));
 
 // Utility Components
 
@@ -149,20 +152,65 @@ function HighlightModal() {
 
 
 function App() {
-    const {
-        sidebarOpen, toggleSidebar, openModal, addNotification, editorMinimized, toggleEditorMinimized,
-        rightPanelOpen, toggleRightPanel, setRightPanelTab, rightPanelWidth, setRightPanelWidth, lastOpenWidth, setLastOpenWidth,
-        isResizing, setIsResizing
-    } = useUIStore();
-    const { files, activeFileId, removeLastDrawing, clearDrawings, markFileSaved } = useFileStore();
-    const {
-        isExecuting, setExecuting, setOutput, setError, setExecutionTime,
-        addToHistory, setShowOutput, inputRequestOpen, setInputRequestOpen, setInput
-    } = useExecutionStore();
+    // ── Standalone View Logic ────────────────────────
+    const urlParams = new URLSearchParams(window.location.search);
+    const isTerminalView = urlParams.get('view') === 'terminal';
 
-    const { theme, backgroundImage, backgroundOpacity, uiFontSize, uiFontFamily, features, experimental } = useSettingsStore();
+    const {
+        sidebarOpen, toggleSidebar, openModal, addNotification,
+        editorMinimized, rightPanelOpen, toggleRightPanel, rightPanelTab,
+        setRightPanelTab, toggleRightPanelApp, rightPanelWidth, setRightPanelWidth,
+        setLastOpenWidth, isResizing, setIsResizing, openApps, closeApp, openApp
+    } = useUIStore(state => ({
+        sidebarOpen: state.sidebarOpen,
+        toggleSidebar: state.toggleSidebar,
+        openModal: state.openModal,
+        addNotification: state.addNotification,
+        editorMinimized: state.editorMinimized,
+        rightPanelOpen: state.rightPanelOpen,
+        toggleRightPanel: state.toggleRightPanel,
+        rightPanelTab: state.rightPanelTab,
+        setRightPanelTab: state.setRightPanelTab,
+        toggleRightPanelApp: state.toggleRightPanelApp,
+        rightPanelWidth: state.rightPanelWidth,
+        setRightPanelWidth: state.setRightPanelWidth,
+        setLastOpenWidth: state.setLastOpenWidth,
+        isResizing: state.isResizing,
+        setIsResizing: state.setIsResizing,
+        openApps: state.openApps,
+        closeApp: state.closeApp,
+        openApp: state.openApp
+    }), (a, b) => Object.keys(a).every(k => a[k] === b[k]));
+
+    const activeFileId = useFileStore(state => state.activeFileId);
+    const removeLastDrawing = useFileStore(state => state.removeLastDrawing);
+    const clearDrawings = useFileStore(state => state.clearDrawings);
+    const markFileSaved = useFileStore(state => state.markFileSaved);
+    const addSticker = useFileStore(state => state.addSticker);
+    const updateSticker = useFileStore(state => state.updateSticker);
+    const removeSticker = useFileStore(state => state.removeSticker);
+
+    const activeFile = useFileStore(
+        state => state.files.find(f => f.id === state.activeFileId),
+        (a, b) => a?.id === b?.id && a?.name === b?.name && a?.stickers?.length === b?.stickers?.length
+    );
+
+
+    const {
+        theme, backgroundImage, backgroundOpacity, uiFontSize,
+        uiFontFamily, features, experimental
+    } = useSettingsStore(state => ({
+        theme: state.theme,
+        backgroundImage: state.backgroundImage,
+        backgroundOpacity: state.backgroundOpacity,
+        uiFontSize: state.uiFontSize,
+        uiFontFamily: state.uiFontFamily,
+        features: state.features,
+        experimental: state.experimental
+    }), (a, b) => Object.keys(a).every(k => a[k] === b[k]));
 
     const [terminalOpen, setTerminalOpen] = useState(false);
+    const [terminalMaximized, setTerminalMaximized] = useState(false);
     const [isController, setIsController] = useState(false);
     const [isBeingControlled, setIsBeingControlled] = useState(false);
     const [isScribbleMode, setIsScribbleMode] = useState(false);
@@ -172,9 +220,51 @@ function App() {
     const [terminalHeight, setTerminalHeight] = useState(250);
     const mainRef = useRef(null);
 
-    const activeFile = files.find(f => f.id === activeFileId);
+    // activeFile derived above via selector
 
     const [activeView, setActiveView] = useState('explorer');
+
+    // Global Shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // F5 - Run Program
+            if (e.key === 'F5') {
+                e.preventDefault();
+                window.dispatchEvent(new CustomEvent('run-program'));
+                return;
+            }
+            // Alt + T - Toggle Terminal
+            if (e.altKey && (e.key === 't' || e.key === 'T')) {
+                e.preventDefault();
+                setTerminalOpen(prev => !prev);
+                return;
+            }
+            // Alt + X - Toggle Sidebar
+            if (e.altKey && (e.key === 'x' || e.key === 'X')) {
+                e.preventDefault();
+                useUIStore.getState().toggleSidebar();
+                return;
+            }
+            // Alt + M - Toggle Terminal Maximize
+            if (e.altKey && (e.key === 'm' || e.key === 'M')) {
+                e.preventDefault();
+                setTerminalMaximized(prev => !prev);
+                return;
+            }
+
+            // Typing Sounds
+            const excludedKeys = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Escape', 'GroupPrevious', 'GroupNext'];
+            if (!excludedKeys.includes(e.key)) {
+                const soundType = useSettingsStore.getState().typingSound;
+                if (soundType && soundType !== 'none') {
+                    audioManager.playTypingSound(soundType);
+                }
+            }
+        };
+        // Use capture: true to ensure we catch events before Monaco or other components intercept them
+        window.addEventListener('keydown', handleKeyDown, { capture: true });
+        return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    }, []);
 
     // Initial setup and OAuth callbacks
     useEffect(() => {
@@ -188,10 +278,27 @@ function App() {
         document.documentElement.style.fontSize = `${uiFontSize}px`;
         if (uiFontFamily) document.documentElement.style.setProperty('--font-sans', uiFontFamily);
 
-        if (uiFontFamily) document.documentElement.style.setProperty('--font-sans', uiFontFamily);
+
 
         document.documentElement.style.setProperty('--bg-opacity', (backgroundOpacity && features?.customBackground) ? backgroundOpacity : 0.85);
     }, [theme, uiFontSize, uiFontFamily, backgroundOpacity, features]);
+
+    // Google Auth Popup Listener
+    useEffect(() => {
+        const handleAuthMessage = async (event) => {
+            if (event.data?.type === 'google-auth-success' && event.data?.code) {
+                try {
+                    await authService.googleCallback(event.data.code);
+                    addNotification({ type: 'success', message: 'Google Account Connected!' });
+                } catch (error) {
+                    addNotification({ type: 'error', message: 'Failed to connect Google account' });
+                }
+            }
+        };
+
+        window.addEventListener('message', handleAuthMessage);
+        return () => window.removeEventListener('message', handleAuthMessage);
+    }, [addNotification]);
 
     // Remote Control Listeners
     useEffect(() => {
@@ -232,69 +339,7 @@ function App() {
         };
     }, [isResizing]);
 
-    const handleRunCode = useCallback(async () => {
-        if (!activeFile) return addNotification({ type: 'error', message: 'No file selected' });
 
-        const isWeb = activeFile.language === 'html' ||
-            (activeFile.language === 'javascript' && (activeFile.content.includes('import React') || activeFile.name.endsWith('.jsx')));
-
-        if (isWeb) {
-            if (!rightPanelOpen) toggleRightPanel();
-            setRightPanelTab('preview');
-            return;
-        }
-
-        // Input detection disabled per user request
-        /*
-        const needsInput = detectInputRequirement(activeFile.content, activeFile.language);
-        if (needsInput && !useExecutionStore.getState().input) {
-            setInputRequestOpen(true);
-            return;
-        }
-        */
-
-        // Detect if we should use interactive mode (e.g. not web)
-        if (!isWeb) {
-            // Prevent rapid clicks
-            if (useExecutionStore.getState().isExecuting) {
-                executorService.stopExecution();
-            }
-
-            setShowOutput(true);
-            setExecuting(true);
-            setOutput('');
-            setError(null);
-
-            // Small delay to allow OutputPanel to mount and attach listeners
-            setTimeout(() => {
-                executorService.executeInteractive(activeFile.content, activeFile.language);
-            }, 200); // 200ms for safety
-            return;
-        }
-
-        setExecuting(true);
-        setOutput('');
-        setError(null);
-        const startTime = Date.now();
-
-        try {
-            const { input } = useExecutionStore.getState();
-            const result = await executorService.execute(activeFile.content, activeFile.language, activeFile.name, input);
-            setExecutionTime(Date.now() - startTime);
-            setShowOutput(true);
-
-            if (result.success) {
-                setOutput(result.output || 'Done (no output)');
-                addToHistory({ success: true, language: activeFile.language, output: result.output });
-            } else {
-                setError(result.error);
-                addToHistory({ success: false, language: activeFile.language, error: result.error });
-            }
-        } catch (e) {
-            setError(e.message);
-        }
-        setExecuting(false);
-    }, [activeFile, rightPanelOpen, toggleRightPanel, setRightPanelTab, setExecuting, setOutput, setError, setExecutionTime, setShowOutput, addToHistory, addNotification]);
 
     const handleSaveAs = useCallback(() => {
         if (!activeFile) return;
@@ -307,6 +352,19 @@ function App() {
         addNotification({ type: 'success', message: `Saved ${activeFile.name}` });
     }, [activeFile, activeFileId, markFileSaved, addNotification]);
 
+    // ── Standalone Terminal View ──────────────────────
+    if (isTerminalView) {
+        return (
+            <div className={`app theme-${theme}`} style={{ background: 'var(--bg-primary)', height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <TerminalPanel />
+                <style>{`
+                    .terminal-panel { height: 100vh !important; flex: 1; border: none !important; }
+                    .terminal-output { flex: 1; height: calc(100vh - 80px) !important; }
+                `}</style>
+            </div>
+        );
+    }
+
     return (
         <div className="app">
             <header className="header">
@@ -314,17 +372,131 @@ function App() {
                     <div className="header__logo">R</div>
                     <h1 className="header__title">Roolts</h1>
                 </div>
+
+                {/* Quick Access Apps in Header */}
+                {experimental?.headerApps && (
+                    <div className="header__middle" style={{ display: 'flex', gap: '8px', flex: 1, justifyContent: 'center' }}>
+                        <button
+                            className="btn btn--ghost btn--icon"
+                            onClick={() => {
+                                openApp('notes');
+                                if (useUIStore.getState().sidebarOpen) useUIStore.getState().toggleSidebar();
+                            }}
+                            title="Notes"
+                            style={{ background: rightPanelTab === 'notes' && rightPanelOpen ? 'var(--bg-elevated)' : 'transparent' }}
+                        >
+                            <FiMessageSquare size={16} color={rightPanelTab === 'notes' && rightPanelOpen ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                        </button>
+                        <button
+                            className="btn btn--ghost btn--icon"
+                            onClick={() => {
+                                openApp('learn');
+                                if (useUIStore.getState().sidebarOpen) useUIStore.getState().toggleSidebar();
+                            }}
+                            title="AI Assistant"
+                            style={{ background: rightPanelTab === 'learn' && rightPanelOpen ? 'var(--bg-elevated)' : 'transparent' }}
+                        >
+                            <FiZap size={16} color={rightPanelTab === 'learn' && rightPanelOpen ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                        </button>
+                        <button
+                            className="btn btn--ghost btn--icon"
+                            onClick={() => {
+                                openApp('codechamp');
+                                if (useUIStore.getState().sidebarOpen) useUIStore.getState().toggleSidebar();
+                            }}
+                            title="CodeChamp"
+                            style={{ background: rightPanelTab === 'codechamp' && rightPanelOpen ? 'var(--bg-elevated)' : 'transparent' }}
+                        >
+                            <FiCode size={16} color={rightPanelTab === 'codechamp' && rightPanelOpen ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                        </button>
+                        <button
+                            className="btn btn--ghost btn--icon"
+                            onClick={() => {
+                                openApp('snapshots');
+                                if (useUIStore.getState().sidebarOpen) useUIStore.getState().toggleSidebar();
+                            }}
+                            title="Snapshots"
+                            style={{ background: rightPanelTab === 'snapshots' && rightPanelOpen ? 'var(--bg-elevated)' : 'transparent' }}
+                        >
+                            <FiImage size={16} color={rightPanelTab === 'snapshots' && rightPanelOpen ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                        </button>
+                        <button
+                            className="btn btn--ghost btn--icon"
+                            onClick={() => {
+                                openApp('apps');
+                                if (useUIStore.getState().sidebarOpen) useUIStore.getState().toggleSidebar();
+                            }}
+                            title="App Grid"
+                            style={{ background: rightPanelTab === 'apps' && rightPanelOpen ? 'var(--bg-elevated)' : 'transparent' }}
+                        >
+                            <FiGrid size={16} color={rightPanelTab === 'apps' && rightPanelOpen ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                        </button>
+                    </div>
+                )}
                 <div className="header__actions">
-                    <button className="btn btn--success" onClick={handleRunCode} disabled={isExecuting}>
-                        {isExecuting ? <span className="spinner" /> : <FiPlay />} Run
-                    </button>
-                    <button className="btn btn--ghost btn--icon" onClick={handleSaveAs}><FiSave /></button>
-                    <button className="btn btn--ghost btn--icon" onClick={() => openModal('newFile')}><FiPlus /></button>
-                    <button className="btn btn--ghost btn--icon" onClick={() => openModal('settings')}><FiSettings /></button>
+                    <button className="btn btn--ghost btn--icon" onClick={handleSaveAs} title="Save As"><FiSave /></button>
+                    <button className="btn btn--ghost btn--icon" onClick={() => openModal('newFile')} title="New File"><FiPlus /></button>
+
+                    <div
+                        className="header__profile"
+                        onClick={() => openModal('auth')}
+                        style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            background: authService.isAuthenticated() ? 'var(--accent-primary)' : 'transparent',
+                            color: authService.isAuthenticated() ? 'white' : 'var(--text-secondary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            marginLeft: '4px'
+                        }}
+                        title={authService.isAuthenticated() ? "Account Settings" : "Sign In"}
+                    >
+                        {authService.isAuthenticated() && authService.getCurrentUser()
+                            ? (authService.getCurrentUser().name?.charAt(0).toUpperCase() || authService.getCurrentUser().email?.charAt(0).toUpperCase())
+                            : <FiUser size={16} />}
+                    </div>
+
+                    <button className="btn btn--ghost btn--icon" onClick={() => openModal('settings')} title="Global Settings"><FiSettings /></button>
                 </div>
             </header>
 
-            <main className={`main ${editorMinimized ? 'main--editor-minimized' : ''}`} ref={mainRef}>
+            <main
+                className={`main ${editorMinimized ? 'main--editor-minimized' : ''}`}
+                ref={mainRef}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                    try {
+                        const data = JSON.parse(e.dataTransfer.getData('application/json'));
+                        if (data.type === 'snapshot' && data.src) {
+                            e.preventDefault();
+                            const rect = mainRef.current.getBoundingClientRect();
+                            const x = e.clientX - rect.left - 75; // Subtract half icon size so it drops exactly under cursor
+                            const y = e.clientY - rect.top - 75;
+
+                            if (activeFileId) {
+                                addSticker(activeFileId, {
+                                    id: Date.now().toString(),
+                                    src: data.src,
+                                    x: Math.max(0, x),
+                                    y: Math.max(0, y),
+                                    rotation: 0,
+                                    flipX: false,
+                                    flipY: false,
+                                    inverted: false,
+                                    scale: 1,
+                                });
+                            }
+                        }
+                    } catch (err) {
+                        // ignore non-json drops
+                    }
+                }}
+            >
                 {sidebarOpen ? (
                     <aside className="sidebar-container">
                         <div className="sidebar-panel">
@@ -334,16 +506,22 @@ function App() {
                         </div>
                     </aside>
                 ) : (
-                    <div
-                        className="sidebar-collapsed"
-                        onClick={toggleSidebar}
-                        title="Show Explorer"
-                    >
-                        <div className="sidebar-collapsed-content">
-                            <FiFolder size={18} />
-                            <span className="sidebar-vertical-text">Explorer</span>
-                        </div>
-                    </div>
+                    <aside className="sidebar-container">
+                        <ActivityBar
+                            activeView={rightPanelTab === 'apps' ? 'apps' : ''}
+                            onActivityClick={(id) => {
+                                if (id === 'explorer') {
+                                    toggleSidebar();
+                                } else {
+                                    setRightPanelTab(id);
+                                    if (!rightPanelOpen) toggleRightPanel();
+                                }
+                            }}
+                            openApps={openApps}
+                            onCloseApp={closeApp}
+                            onOpenApp={openApp}
+                        />
+                    </aside>
                 )}
 
                 <div className="editor-terminal-wrapper">
@@ -366,11 +544,39 @@ function App() {
                     </div>
                     {terminalOpen && (
                         <>
-                            <div className="resize-handle resize-handle--vertical" onMouseDown={() => setIsResizing('terminal')} />
-                            <div className="terminal-bottom-panel" style={{ height: terminalHeight }}>
-                                <div className="terminal-panel-header">
-                                    <div className="terminal-panel-tabs"><button className="terminal-panel-tab terminal-panel-tab--active"><FiTerminal size={14} /> Terminal</button></div>
-                                    <button className="btn btn--ghost btn--icon" onClick={() => setTerminalOpen(false)}><FiX size={14} /></button>
+                            {!terminalMaximized && <div className="resize-handle resize-handle--vertical" onMouseDown={() => setIsResizing('terminal')} />}
+                            <div
+                                className="terminal-bottom-panel"
+                                style={terminalMaximized ? {
+                                    position: 'fixed', top: '60px', left: sidebarOpen ? '260px' : '48px', right: 0, bottom: 0, height: 'auto', width: 'auto', zIndex: 10000,
+                                    borderTop: 'none', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column'
+                                } : { height: terminalHeight, display: 'flex', flexDirection: 'column' }}
+                            >
+                                <div className="terminal-panel-header" style={{ height: '44px', padding: '0 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-primary)' }}>
+                                    <div className="terminal-panel-tabs">
+                                        <button className="editor-tab editor-tab--active" style={{ height: '32px', padding: '0 12px' }}>
+                                            <FiTerminal size={14} /> Terminal
+                                        </button>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <button
+                                            className="btn btn--ghost btn--icon"
+                                            onClick={() => window.open(window.location.origin + window.location.pathname + '?view=terminal', '_blank', 'width=800,height=600')}
+                                            title="Pop Out Terminal"
+                                            style={{ width: '28px', height: '28px' }}
+                                        >
+                                            <FiExternalLink size={14} />
+                                        </button>
+                                        <button
+                                            className="btn btn--ghost btn--icon"
+                                            onClick={() => setTerminalMaximized(!terminalMaximized)}
+                                            title={terminalMaximized ? "Restore" : "Maximize (Alt+M)"}
+                                            style={{ width: '28px', height: '28px' }}
+                                        >
+                                            {terminalMaximized ? <FiMinimize2 size={14} /> : <FiMaximize2 size={14} />}
+                                        </button>
+                                        <button className="btn btn--ghost btn--icon" onClick={() => setTerminalOpen(false)} title="Close Panel" style={{ width: '28px', height: '28px' }}><FiX size={14} /></button>
+                                    </div>
                                 </div>
                                 <TerminalPanel />
                             </div>
@@ -378,20 +584,31 @@ function App() {
                     )}
                 </div>
 
-                <div className="resize-handle resize-handle--horizontal" onMouseDown={() => setIsResizing('right')} />
-                <RightPanel style={{ width: rightPanelWidth }} editorMinimized={editorMinimized} />
+                {(!experimental?.headerApps || rightPanelOpen) && (
+                    <>
+                        <div className="resize-handle resize-handle--horizontal" onMouseDown={() => setIsResizing('right')} />
+                        <RightPanel style={{ width: rightPanelWidth }} editorMinimized={editorMinimized} />
+                    </>
+                )}
             </main>
 
             <StatusBar terminalOpen={terminalOpen} setTerminalOpen={setTerminalOpen} />
             <Suspense fallback={null}>
                 <SettingsModal />
                 <NewFileModal />
+                <AuthModal />
             </Suspense>
             <HighlightModal />
 
             <SyncManager />
             <Notifications />
             <RemoteControlOverlay isController={isController} isBeingControlled={isBeingControlled} />
+            <StickerOverlay
+                stickers={activeFile?.stickers || []}
+                activeFileId={activeFileId}
+                updateSticker={updateSticker}
+                removeSticker={removeSticker}
+            />
         </div>
     );
 }

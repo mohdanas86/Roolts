@@ -3,7 +3,9 @@ import {
     FiX, FiImage, FiEdit3, FiCpu, FiStar, FiMessageSquare, FiTrash2, FiList, FiCheckCircle
 } from 'react-icons/fi';
 import { SiMicrosoftonedrive, SiEvernote } from 'react-icons/si';
-import { useUIStore, useSettingsStore, useNotesStore } from '../store';
+import { useUIStore, useSettingsStore, useNotesStore, useExtensionStore } from '../store';
+import { adminService } from '../services/api';
+import { FiLock, FiUnlock, FiKey } from 'react-icons/fi';
 
 function SettingsModal() {
     const { modals, closeModal } = useUIStore();
@@ -16,7 +18,48 @@ function SettingsModal() {
     } = useSettingsStore();
 
     const { selectedProvider, setProvider } = useNotesStore();
+    const { installedExtensions } = useExtensionStore();
     const [activeTab, setActiveTab] = useState('theme');
+
+    // Admin State
+    const [adminPassword, setAdminPassword] = useState('');
+    const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+    const [adminError, setAdminError] = useState('');
+    const [adminKeys, setAdminKeys] = useState({ pollinations: '' });
+    const [keysStatus, setKeysStatus] = useState({});
+    const [isSavingAdmin, setIsSavingAdmin] = useState(false);
+
+    const handleAdminUnlock = async (e) => {
+        e.preventDefault();
+        setAdminError('');
+        try {
+            const res = await adminService.verifyPassword(adminPassword);
+            if (res.data.success) {
+                setIsAdminUnlocked(true);
+                // Fetch current key status
+                const statusRes = await adminService.getKeysStatus(adminPassword);
+                setKeysStatus(statusRes.data.keys || {});
+            }
+        } catch (err) {
+            setAdminError(err.response?.data?.error || 'Invalid password');
+        }
+    };
+
+    const handleSaveAdminKeys = async () => {
+        setIsSavingAdmin(true);
+        try {
+            await adminService.updateKeys(adminPassword, adminKeys);
+            const statusRes = await adminService.getKeysStatus(adminPassword);
+            setKeysStatus(statusRes.data.keys || {});
+            setAdminKeys({ pollinations: '' }); // Clear input field after save
+            setAdminError('Saved successfully!');
+            setTimeout(() => setAdminError(''), 3000);
+        } catch (err) {
+            setAdminError(err.response?.data?.error || 'Failed to save keys');
+        } finally {
+            setIsSavingAdmin(false);
+        }
+    };
 
     const handleImageUpload = (e) => {
         const file = e.target.files[0];
@@ -79,6 +122,20 @@ function SettingsModal() {
                             >
                                 <FiMessageSquare style={{ marginRight: '8px' }} /> Notes
                             </button>
+                            <button
+                                className={`settings-tab-btn ${activeTab === 'shortcuts' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('shortcuts')}
+                                style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '0.75rem 1rem', background: 'none', border: 'none', color: activeTab === 'shortcuts' ? 'var(--accent-primary)' : 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left' }}
+                            >
+                                <FiList style={{ marginRight: '8px' }} /> Shortcuts
+                            </button>
+                            <button
+                                className={`settings-tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('admin')}
+                                style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '0.75rem 1rem', background: 'none', border: 'none', color: activeTab === 'admin' ? 'var(--accent-primary)' : 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left', marginTop: 'auto' }}
+                            >
+                                <FiKey style={{ marginRight: '8px' }} /> Admin Config
+                            </button>
                         </div>
 
                         {/* Settings Content */}
@@ -101,6 +158,15 @@ function SettingsModal() {
                                             <option value="nord">Nord</option>
                                             <option value="dracula">Dracula</option>
                                             <option value="solarized-light">Solarized Light</option>
+                                            {installedExtensions.filter(ext => ext.themes && ext.themes.length > 0).map(ext => (
+                                                <optgroup label={ext.displayName || ext.name} key={ext.id}>
+                                                    {ext.themes.map(t => (
+                                                        <option key={t.id || t.label} value={t.label || t.id}>
+                                                            {t.label || t.id}
+                                                        </option>
+                                                    ))}
+                                                </optgroup>
+                                            ))}
                                         </select >
                                     </div >
 
@@ -213,6 +279,22 @@ function SettingsModal() {
                                 <div className="settings-section">
                                     <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-primary)', paddingBottom: '0.5rem' }}>Features</h3>
 
+                                    <div className="form-group" style={{ marginBottom: '1rem' }}>
+                                        <label>Typing Sound</label>
+                                        <select
+                                            className="input-select"
+                                            value={useSettingsStore.getState().typingSound || 'none'}
+                                            onChange={(e) => useSettingsStore.getState().setTypingSound(e.target.value)}
+                                            style={{ width: '100%' }}
+                                        >
+                                            <option value="none">None</option>
+                                            <option value="mechanical">Mechanical Keyboard</option>
+                                            <option value="typewriter">Vintage Typewriter</option>
+                                            <option value="click">Soft Click</option>
+                                            <option value="pop">Bubbly Pop</option>
+                                        </select>
+                                    </div>
+
                                     <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
                                         <input
                                             type="checkbox"
@@ -231,6 +313,26 @@ function SettingsModal() {
                                             style={{ marginRight: '8px' }}
                                         />
                                         <label>Show Line Numbers</label>
+                                    </div>
+
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={features.hideExtensions}
+                                            onChange={() => toggleFeature('hideExtensions')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <label>Hide File Extensions</label>
+                                    </div>
+
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={features.currentLineHighlight}
+                                            onChange={() => toggleFeature('currentLineHighlight')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <label>Highlight Current Line in Editor</label>
                                     </div>
 
                                     <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
@@ -358,13 +460,44 @@ function SettingsModal() {
                                         </div>
                                     </div>
 
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={experimental?.headerApps}
+                                            onChange={() => toggleExperimental('headerApps')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <label style={{ cursor: 'pointer' }}>Quick Access Header Apps</label>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Shows app icons (Notes, AI, etc.) in the center of the top bar.</span>
+                                        </div>
+                                    </div>
 
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={experimental?.snapshots}
+                                            onChange={() => toggleExperimental('snapshots')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <label style={{ cursor: 'pointer' }}>Snapshots Library</label>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Image and sticker library in the apps grid.</span>
+                                        </div>
+                                    </div>
 
-
-
-
-
-
+                                    <div className="form-check" style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={experimental?.collaborativeHub}
+                                            onChange={() => toggleExperimental('collaborativeHub')}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <label style={{ cursor: 'pointer' }}>Collaborative Hub</label>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Enables the Collaboration app for remote screen control and chat.</span>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -408,6 +541,135 @@ function SettingsModal() {
                                             </div>
                                         ))}
                                     </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'shortcuts' && (
+                                <div className="settings-section">
+                                    <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-primary)', paddingBottom: '0.5rem' }}>Keyboard Shortcuts</h3>
+                                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                                        Boost your productivity with these global keyboard shortcuts.
+                                    </p>
+
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {[
+                                            { key: 'F5', label: 'Run Code' },
+                                            { key: 'Alt + T', label: 'Toggle Terminal Panel' },
+                                            { key: 'Alt + M', label: 'Maximize/Restore Terminal' },
+                                            { key: 'Alt + X', label: 'Toggle Left Sidebar' },
+                                            { key: 'Ctrl + / (Cmd + /)', label: 'Toggle Line Comment (Editor)' },
+                                            { key: 'Ctrl + S (Cmd + S)', label: 'Save File (Editor)' },
+                                            { key: 'Shift + Alt + F', label: 'Format Document (Editor)' },
+                                        ].map((shortcut, i) => (
+                                            <div key={i} style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '8px 12px',
+                                                background: 'var(--bg-secondary)',
+                                                borderRadius: '6px',
+                                                border: '1px solid var(--border-primary)'
+                                            }}>
+                                                <span style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{shortcut.label}</span>
+                                                <kbd style={{
+                                                    background: 'var(--bg-tertiary)',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '12px',
+                                                    fontFamily: 'monospace',
+                                                    border: '1px solid var(--border-primary)',
+                                                    boxShadow: '0 1px 1px rgba(0,0,0,0.1)'
+                                                }}>{shortcut.key}</kbd>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'admin' && (
+                                <div className="settings-section">
+                                    <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-primary)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        {isAdminUnlocked ? <FiUnlock className="text-success" /> : <FiLock className="text-warning" />} Admin Configuration
+                                    </h3>
+
+                                    {!isAdminUnlocked ? (
+                                        <div style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '8px', textAlign: 'center', marginTop: '2rem' }}>
+                                            <FiLock size={40} style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }} />
+                                            <h4 style={{ marginBottom: '1rem' }}>Master Password Required</h4>
+                                            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                                                System-level configuration is locked. Please enter the master password to access API keys.
+                                            </p>
+                                            <form onSubmit={handleAdminUnlock} style={{ display: 'flex', gap: '8px', maxWidth: '300px', margin: '0 auto', flexDirection: 'column' }}>
+                                                <input
+                                                    type="password"
+                                                    value={adminPassword}
+                                                    onChange={e => setAdminPassword(e.target.value)}
+                                                    placeholder="Enter Master Password..."
+                                                    className="input-field"
+                                                    autoFocus
+                                                />
+                                                <button type="submit" className="btn btn--primary" style={{ width: '100%' }}>
+                                                    Unlock
+                                                </button>
+                                                {adminError && <div style={{ color: 'var(--error-color)', fontSize: '12px', marginTop: '8px' }}>{adminError}</div>}
+                                            </form>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <div style={{ background: 'var(--bg-tertiary)', padding: '12px', borderRadius: '6px', marginBottom: '1.5rem', borderLeft: '4px solid var(--warning-color)' }}>
+                                                <p style={{ fontSize: '12px', margin: 0, color: 'var(--text-primary)' }}>
+                                                    <strong>CAUTION:</strong> These keys are applied system-wide for all users. They bypass free rate limits and use direct billing. Keys are securely stored in the local encrypted vault.
+                                                </p>
+                                            </div>
+
+                                            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                                                <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span>Pollinations API Key</span>
+                                                    {keysStatus.pollinations ? (
+                                                        <span style={{ fontSize: '11px', color: 'var(--success-color)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <FiCheckCircle /> Configured
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Not Set</span>
+                                                    )}
+                                                </label>
+                                                <input
+                                                    type="password"
+                                                    className="input-field"
+                                                    value={adminKeys.pollinations}
+                                                    onChange={(e) => setAdminKeys({ ...adminKeys, pollinations: e.target.value })}
+                                                    placeholder={keysStatus.pollinations ? "•••••••••••••••• (Leave blank to keep current)" : "sk-..."}
+                                                    style={{ width: '100%', fontFamily: 'monospace' }}
+                                                />
+                                                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                                                    Required for the `Standard AI` fallback to avoid 502/504 traffic congestion errors. Use empty string to remove.
+                                                </p>
+                                            </div>
+
+                                            <button
+                                                className="btn btn--primary"
+                                                onClick={handleSaveAdminKeys}
+                                                disabled={isSavingAdmin}
+                                                style={{ width: '100%', marginTop: '1rem' }}
+                                            >
+                                                {isSavingAdmin ? 'Saving securely to Vault...' : 'Save Configuration'}
+                                            </button>
+
+                                            {adminError && (
+                                                <div style={{
+                                                    background: adminError.includes('success') ? 'var(--success-color-soft, rgba(46, 204, 113, 0.1))' : 'var(--error-color-soft, rgba(231, 76, 60, 0.1))',
+                                                    color: adminError.includes('success') ? 'var(--success-color)' : 'var(--error-color)',
+                                                    padding: '12px',
+                                                    borderRadius: '6px',
+                                                    marginTop: '1rem',
+                                                    fontSize: '13px',
+                                                    textAlign: 'center'
+                                                }}>
+                                                    {adminError}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div >

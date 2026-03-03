@@ -1,6 +1,7 @@
-import { create } from 'zustand';
+import { createWithEqualityFn as create } from 'zustand/traditional';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
+import { indexedDBStorage } from '../services/storage';
 
 // File Store - manages files and editor state (persisted)
 export const useFileStore = create(
@@ -23,7 +24,11 @@ if __name__ == "__main__":
     hello_world()
 `,
                     language: 'python',
-                    modified: false
+                    modified: false,
+                    highlights: [],
+                    drawings: [],
+                    stickers: [],
+                    images: []
                 },
                 {
                     id: '2',
@@ -42,7 +47,11 @@ function App() {
 export default App;
 `,
                     language: 'javascript',
-                    modified: false
+                    modified: false,
+                    highlights: [],
+                    drawings: [],
+                    stickers: [],
+                    images: []
                 }
             ],
             activeFileId: '1',
@@ -133,6 +142,12 @@ export default App;
                 return { files: updatedFiles };
             }),
 
+            markFileSaved: (fileId) => set((state) => ({
+                files: state.files.map((file) =>
+                    file.id === fileId ? { ...file, modified: false } : file
+                )
+            })),
+
             addFile: (name, content = '', language = 'plaintext') => {
                 const id = Date.now().toString();
                 set((state) => ({
@@ -146,7 +161,9 @@ export default App;
                             language,
                             modified: false,
                             highlights: [],
-                            drawings: []
+                            drawings: [],
+                            stickers: [],
+                            images: []
                         }
                     ],
                     openFiles: [...state.openFiles, id],
@@ -223,6 +240,50 @@ export default App;
                 })
             })),
 
+            // Sticker Actions
+            addSticker: (fileId, sticker) => set((state) => ({
+                files: state.files.map((file) =>
+                    file.id === fileId
+                        ? { ...file, stickers: [...(file.stickers || []), sticker], modified: true }
+                        : file
+                )
+            })),
+
+            // Image Actions
+            addImage: (fileId, image) => set((state) => ({
+                files: state.files.map((file) =>
+                    file.id === fileId
+                        ? { ...file, images: [...(file.images || []), image], modified: true }
+                        : file
+                )
+            })),
+
+            removeImage: (fileId, imageId) => set((state) => ({
+                files: state.files.map((file) =>
+                    file.id === fileId
+                        ? { ...file, images: (file.images || []).filter(img => img.id !== imageId), modified: true }
+                        : file
+                )
+            })),
+            updateSticker: (fileId, stickerId, updates) => set((state) => ({
+                files: state.files.map((file) => {
+                    if (file.id === fileId) {
+                        const newStickers = (file.stickers || []).map(s =>
+                            s.id === stickerId ? { ...s, ...updates } : s
+                        );
+                        return { ...file, stickers: newStickers, modified: true };
+                    }
+                    return file;
+                })
+            })),
+
+            removeSticker: (fileId, stickerId) => set((state) => ({
+                files: state.files.map((file) =>
+                    file.id === fileId
+                        ? { ...file, stickers: (file.stickers || []).filter(s => s.id !== stickerId), modified: true }
+                        : file
+                )
+            })),
 
             deleteFile: (fileId) => set((state) => ({
                 files: state.files.filter((file) => file.id !== fileId),
@@ -260,6 +321,7 @@ export default App;
         }),
         {
             name: 'roolts-files-storage',
+            storage: indexedDBStorage,
             partialize: (state) => ({
                 files: state.files,
                 activeFileId: state.activeFileId,
@@ -271,40 +333,113 @@ export default App;
 
 
 
-// Learning Store - manages AI learning features
-export const useLearningStore = create((set) => ({
-    explanation: null,
-    diagram: null,
-    resources: [],
-    reviewResults: null,
-    isGenerating: false,
-    isReviewing: false,
-    activeTab: 'explain',
-    chatMessages: [],
-    pendingQuery: null,
+// Learning Store - manages AI learning features (persisted)
+export const useLearningStore = create(
+    persist(
+        (set) => ({
+            explanation: null,
+            diagram: null,
+            resources: [],
+            reviewResults: null,
+            isGenerating: false,
+            isReviewing: false,
+            activeTab: 'explain',
+            chatMessages: [],
+            pendingQuery: null,
 
-    setExplanation: (explanation) => set({ explanation }),
-    setDiagram: (diagram) => set({ diagram }),
-    setResources: (resources) => set({ resources }),
-    setReviewResults: (reviewResults) => set({ reviewResults }),
-    setGenerating: (isGenerating) => set({ isGenerating }),
-    setReviewing: (isReviewing) => set({ isReviewing }),
-    setActiveTab: (activeTab) => set({ activeTab }),
-    addChatMessage: (message) => set((state) => ({
-        chatMessages: [...state.chatMessages, { ...message, id: Date.now() }]
-    })),
-    clearChat: () => set({ chatMessages: [] }),
-    setPendingQuery: (query) => set({ pendingQuery: query }),
+            setExplanation: (explanation) => set({ explanation }),
+            setDiagram: (diagram) => set({ diagram }),
+            setResources: (resources) => set({ resources }),
+            setReviewResults: (reviewResults) => set({ reviewResults }),
+            setGenerating: (isGenerating) => set({ isGenerating }),
+            setReviewing: (isReviewing) => set({ isReviewing }),
+            setActiveTab: (activeTab) => set({ activeTab }),
+            addChatMessage: (message) => set((state) => ({
+                chatMessages: [...state.chatMessages, { ...message, id: Date.now() }]
+            })),
+            clearChat: () => set({ chatMessages: [] }),
+            setPendingQuery: (query) => set({ pendingQuery: query }),
 
-    reset: () => set({
-        explanation: null,
-        diagram: null,
-        resources: [],
-        reviewResults: null,
-        isGenerating: false,
-        isReviewing: false
-    })
-}));
+            reset: () => set({
+                explanation: null,
+                diagram: null,
+                resources: [],
+                reviewResults: null,
+                isGenerating: false,
+                isReviewing: false,
+                chatMessages: []
+            })
+        }),
+        {
+            name: 'roolts-learning-storage',
+            storage: indexedDBStorage,
+            partialize: (state) => ({
+                chatMessages: state.chatMessages,
+                explanation: state.explanation,
+                diagram: state.diagram,
+                resources: state.resources,
+                activeTab: state.activeTab
+            })
+        }
+    )
+);
+
+// CodeChamp Store - manages competitive coding assistant state (persisted)
+export const useCodeChampStore = create(
+    persist(
+        (set) => ({
+            analysis: null,
+            testCases: [{ input: '', expected: '' }],
+            detectedProblem: null,
+            activeTab: 'complexity',
+            hasAnalyzedOnce: false,
+            lastContentHash: '',
+            tone: 'standard',
+            scraperUrl: '',
+            scraperTarget: '',
+            scraperResult: '',
+
+            setAnalysis: (analysis) => set({ analysis }),
+            setTestCases: (testCases) => set({ testCases }),
+            setDetectedProblem: (detectedProblem) => set({ detectedProblem }),
+            setActiveTab: (activeTab) => set({ activeTab }),
+            setHasAnalyzedOnce: (val) => set({ hasAnalyzedOnce: val }),
+            setLastContentHash: (hash) => set({ lastContentHash: hash }),
+            setTone: (tone) => set({ tone }),
+            setScraperUrl: (url) => set({ scraperUrl: url }),
+            setScraperTarget: (target) => set({ scraperTarget: target }),
+            setScraperResult: (result) => set({ scraperResult: result }),
+
+            reset: () => set({
+                analysis: null,
+                testCases: [{ input: '', expected: '' }],
+                detectedProblem: null,
+                hasAnalyzedOnce: false,
+                lastContentHash: '',
+                tone: 'standard',
+                scraperUrl: '',
+                scraperTarget: '',
+                scraperResult: ''
+            })
+        }),
+        {
+            name: 'roolts-codechamp-storage',
+            storage: indexedDBStorage,
+            partialize: (state) => ({
+                analysis: state.analysis,
+                testCases: state.testCases,
+                detectedProblem: state.detectedProblem,
+                activeTab: state.activeTab,
+                hasAnalyzedOnce: state.hasAnalyzedOnce,
+                lastContentHash: state.lastContentHash,
+                tone: state.tone,
+                scraperUrl: state.scraperUrl,
+                scraperTarget: state.scraperTarget,
+                scraperResult: state.scraperResult
+            })
+        }
+    )
+);
 
 // UI Store - manages UI state
 export const useUIStore = create(
@@ -312,7 +447,8 @@ export const useUIStore = create(
         (set) => ({
             sidebarOpen: true,
             rightPanelOpen: true,
-            rightPanelTab: 'learn',
+            rightPanelTab: 'learn', // This is technically the active app
+            get rightPanelApp() { return this.rightPanelTab; }, // Alias for ease of use
             editorMinimized: false,
             rightPanelExpanded: false,
             modals: {
@@ -321,23 +457,31 @@ export const useUIStore = create(
                 share: false,
                 settings: false,
                 portfolioGenerator: false,
-                deployment: false
+                deployment: false,
+                auth: false
             },
             notifications: [],
-            rightPanelWidth: 600,
-            lastOpenWidth: 600,
+            appPreviewUrl: null,
+            rightPanelWidth: 800,
+            lastOpenWidth: 800,
             isResizing: null,
+            openApps: [], // Array of app IDs currently open in sidebar
 
             toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
             toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen })),
             setIsResizing: (val) => set({ isResizing: val }),
             setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
+            toggleRightPanelApp: (appId) => set((state) => ({
+                rightPanelTab: appId,
+                rightPanelOpen: state.rightPanelTab === appId ? !state.rightPanelOpen : true
+            })),
             setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
             toggleEditorMinimized: () => set((state) => ({ editorMinimized: !state.editorMinimized })),
             toggleRightPanelExpanded: () => set((state) => ({
                 rightPanelExpanded: !state.rightPanelExpanded,
                 editorMinimized: !state.rightPanelExpanded
             })),
+            setAppPreviewUrl: (url) => set({ appPreviewUrl: url }),
 
             openModal: (modalName) => set((state) => ({
                 modals: { ...state.modals, [modalName]: true }
@@ -364,7 +508,28 @@ export const useUIStore = create(
                 notifications: state.notifications.filter((n) => n.id !== id)
             })),
 
-            setLastOpenWidth: (width) => set({ lastOpenWidth: width })
+            setLastOpenWidth: (width) => set({ lastOpenWidth: width }),
+
+            openApp: (appId) => set((state) => {
+                if (state.openApps.includes(appId)) return { rightPanelTab: appId, rightPanelOpen: true };
+                return {
+                    openApps: [...state.openApps, appId],
+                    rightPanelTab: appId,
+                    rightPanelOpen: true
+                };
+            }),
+
+            closeApp: (appId) => set((state) => {
+                const newOpenApps = state.openApps.filter(id => id !== appId);
+                const nextTab = state.rightPanelTab === appId
+                    ? (newOpenApps.length > 0 ? newOpenApps[newOpenApps.length - 1] : 'learn')
+                    : state.rightPanelTab;
+
+                return {
+                    openApps: newOpenApps,
+                    rightPanelTab: nextTab
+                };
+            })
         }),
         {
             name: 'roolts-ui-storage',
@@ -373,7 +538,8 @@ export const useUIStore = create(
                 rightPanelOpen: state.rightPanelOpen,
                 rightPanelTab: state.rightPanelTab,
                 rightPanelWidth: state.rightPanelWidth,
-                lastOpenWidth: state.lastOpenWidth
+                lastOpenWidth: state.lastOpenWidth,
+                openApps: state.openApps
             })
         }
     )
@@ -405,11 +571,17 @@ export const useSettingsStore = create(
                 scribble: false,
                 customBackground: false,
                 superSimpleMode: false,
-                socratesMode: false
+                socratesMode: false,
+                hideExtensions: false,
+                currentLineHighlight: false
             },
             experimental: {
-                leetcodeMode: false
+                leetcodeMode: false,
+                snapshots: false,
+                headerApps: false,
+                collaborativeHub: false
             },
+            typingSound: 'none', // none, mechanical, typewriter, click, pop
             scribblePenSize: 3,
             scribbleEraserSize: 15,
             appOrder: [], // Persisted order of app IDs
@@ -440,6 +612,7 @@ export const useSettingsStore = create(
             setScribbleSize: (type, size) => set((state) => ({
                 [type === 'pen' ? 'scribblePenSize' : 'scribbleEraserSize']: size
             })),
+            setTypingSound: (sound) => set({ typingSound: sound }),
 
             // App Reordering Action
             reorderApps: (newOrder) => set({ appOrder: newOrder }),
@@ -465,10 +638,15 @@ export const useSettingsStore = create(
                     scribble: false,
                     customBackground: false,
                     superSimpleMode: false,
-                    socratesMode: false
+                    socratesMode: false,
+                    hideExtensions: false,
+                    currentLineHighlight: false
                 },
                 experimental: {
-                    leetcodeMode: false
+                    leetcodeMode: false,
+                    snapshots: false,
+                    headerApps: false,
+                    collaborativeHub: false
                 },
                 scribblePenSize: 3,
                 scribbleEraserSize: 15,
@@ -600,9 +778,10 @@ export const useExecutionStore = create(
             showOutput: false,
             isSplitMode: false,
             input: '',
-            input: '',
             inputRequestOpen: false,
             isInteractive: false,
+            activeGui: null,
+
 
 
             setExecuting: (isExecuting) => set({ isExecuting }),
@@ -621,6 +800,8 @@ export const useExecutionStore = create(
             },
             setInputRequestOpen: (inputRequestOpen) => set({ inputRequestOpen }),
             setIsInteractive: (isInteractive) => set({ isInteractive }),
+            setActiveGui: (activeGui) => set({ activeGui }),
+
 
 
             setCompilerStatus: (language, status) => set((state) => ({
@@ -641,7 +822,8 @@ export const useExecutionStore = create(
                 ].slice(0, 20) // Keep last 20 entries
             })),
 
-            clearOutput: () => set({ output: '', error: null, executionTime: null }),
+            clearOutput: () => set({ output: '', error: null, executionTime: null, activeGui: null }),
+
 
             clearHistory: () => set({ history: [] }),
 
@@ -651,8 +833,10 @@ export const useExecutionStore = create(
                 error: null,
                 executionTime: null,
                 showOutput: false,
-                isInteractive: false
+                isInteractive: false,
+                activeGui: null
             })
+
         }),
         {
             name: 'roolts-execution-storage',
@@ -697,9 +881,55 @@ export const useTerminalStore = create(
 
             clearExecutionOutput: () => set({ executionOutput: [] }),
 
-            addExecutionLine: (line) => set((state) => ({
-                executionOutput: [...state.executionOutput, line].slice(-500)
-            })),
+            addExecutionLine: (line) => set((state) => {
+                let processedLine = { ...line };
+                if (line.type === 'stdout' && typeof line.content === 'string') {
+                    // Optimized ANSI parser
+                    const parts = [];
+                    const regex = /\x1b\[([0-9;]*)m/g;
+                    let lastIndex = 0;
+                    let currentColor = '#cccccc';
+                    let match;
+
+                    while ((match = regex.exec(line.content)) !== null) {
+                        if (match.index > lastIndex) {
+                            parts.push({ text: line.content.slice(lastIndex, match.index), color: currentColor });
+                        }
+                        const codes = match[1].split(';').map(Number);
+                        for (const code of codes) {
+                            switch (code) {
+                                case 0: currentColor = '#cccccc'; break;
+                                case 30: currentColor = '#0c0c0c'; break;
+                                case 31: currentColor = '#ff6b6b'; break;
+                                case 32: currentColor = '#51cf66'; break;
+                                case 33: currentColor = '#ffd43b'; break;
+                                case 34: currentColor = '#4dabf7'; break;
+                                case 35: currentColor = '#cc5de8'; break;
+                                case 36: currentColor = '#3bc9db'; break;
+                                case 37: currentColor = '#f1f3f5'; break;
+                                case 90: currentColor = '#868e96'; break;
+                                case 91: currentColor = '#ff8787'; break;
+                                case 92: currentColor = '#69db7c'; break;
+                                case 93: currentColor = '#ffe066'; break;
+                                case 94: currentColor = '#74c0fc'; break;
+                                case 95: currentColor = '#e599f7'; break;
+                                case 96: currentColor = '#66d9e8'; break;
+                                case 97: currentColor = '#ffffff'; break;
+                            }
+                        }
+                        lastIndex = regex.lastIndex;
+                    }
+
+                    if (lastIndex < line.content.length) {
+                        parts.push({ text: line.content.slice(lastIndex), color: currentColor });
+                    }
+                    processedLine.parts = parts.length > 0 ? parts : [{ text: line.content, color: '#cccccc' }];
+                }
+
+                return {
+                    executionOutput: [...state.executionOutput, processedLine].slice(-500)
+                };
+            }),
 
             getFromHistory: (direction) => {
                 const state = get();

@@ -13,7 +13,48 @@ const api = axios.create({
     }
 });
 
+// Request interceptor for injecting AI keys
+api.interceptors.request.use(
+    (config) => {
+        // Inject AI keys if available
+        if (config.url.includes('/ai/')) {
+            const provider = localStorage.getItem('roolts_ai_provider');
+            const focusedKey = localStorage.getItem('roolts_ai_key');
 
+            const allKeys = {};
+
+            // If a specific provider is selected (and it's not the default 'roolts' auto-mode),
+            // strictly isolate the key to only that provider.
+            if (provider && provider !== 'roolts') {
+                if (focusedKey) {
+                    allKeys[provider] = focusedKey;
+                    config.headers['X-AI-Provider'] = provider;
+                    config.headers['X-AI-Key'] = focusedKey;
+                }
+            } else {
+                // If in 'roolts' (auto) mode, we can send all providing keys for the backend smart router
+                const availableKeys = {
+                    gemini: localStorage.getItem('roolts_ai_key_gemini'),
+                    openai: localStorage.getItem('roolts_ai_key_openai'),
+                    deepseek: localStorage.getItem('roolts_ai_key_deepseek'),
+                    huggingface: localStorage.getItem('roolts_ai_key_huggingface'),
+                    claude: localStorage.getItem('roolts_ai_key_claude')
+                };
+                Object.keys(availableKeys).forEach(k => {
+                    if (availableKeys[k]) allKeys[k] = availableKeys[k];
+                });
+            }
+
+            if (Object.keys(allKeys).length > 0) {
+                config.headers['X-AI-Keys-JSON'] = JSON.stringify(allKeys);
+            }
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
 
 // Response interceptor for error handling
 api.interceptors.response.use(
@@ -39,13 +80,16 @@ export const fileService = {
 
 export const aiService = {
     status: () => api.get('/ai/status'),
-    explainCode: (code, language) => api.post('/ai/explain', { code, language }),
+    explainCode: (code, language, error = '') => api.post('/ai/explain', { code, language, error }),
     generateDiagram: (code, language, type = 'flowchart') =>
         api.post('/ai/diagram', { code, language, type }),
-    suggestResources: (code, language) => api.post('/ai/resources', { code, language }),
+    suggestResources: (code, language, error = '') => api.post('/ai/resources', { code, language, error }),
+    scanCompiler: () => api.post('/ai/scan-compiler'),
     analyzeCode: (code, language) => api.post('/ai/analyze', { code, language }),
-    analyzeCodeChamp: (code, language, action = 'analyze', url = '', target = '') =>
-        api.post('/ai/code-champ', { code, language, action, url, target }),
+    analyzeCodeChamp: (code, language, action = 'analyze', url = '', target = '', tone = 'standard') =>
+        api.post('/ai/code-champ', { code, language, action, url, target, tone }),
+    generateLeetcodeTestCases: (code, language) =>
+        api.post('/ai/leetcode-testcases', { code, language }),
     chat: (code, language, query, history, apiKey = null, provider = null, images = [], signal = null, executionOutput = '') =>
         api.post('/ai/chat', { code, language, query, history, apiKey, provider, images, executionOutput }, { signal }),
     review: (code, language, error = '', signal = null) => api.post('/ai/review', { code, language, error }, { signal }),
@@ -57,6 +101,12 @@ export const aiService = {
     fixCode: (code, language, error = '', signal = null) => api.post('/ai/fix', { code, language, error }, { signal }),
     suggestCommitMessage: (files, diff) =>
         api.post('/ai/commit-message', { files, diff }),
+
+    // ── Chat History ─────────────────────────────────────────────
+    getChatHistory: () => api.get('/ai/history'),
+    saveChatMessage: (role, content, reasoning = null) =>
+        api.post('/ai/history', { role, content, reasoning }),
+    clearChatHistory: () => api.delete('/ai/history'),
 
     // ── Advanced AI Features ──────────────────────────────────────
     // 1. Code Refactoring (signal support)
@@ -116,6 +166,18 @@ export const analyzerService = {
         javaApi.post('/analyze/dependencies', { code, language }),
     suggestions: (code, language) =>
         javaApi.post('/analyze/suggestions', { code, language })
+};
+
+// ============ Admin Service ============
+
+export const adminService = {
+    verifyPassword: (password) => api.post('/auth/admin/verify', { password }),
+    getKeysStatus: (password) => api.get('/auth/admin/keys', {
+        headers: { Authorization: `Bearer ${password}` }
+    }),
+    updateKeys: (password, keys) => api.post('/auth/admin/keys', keys, {
+        headers: { Authorization: `Bearer ${password}` }
+    })
 };
 
 // ============ LSP (Language Server Protocol) ============

@@ -48,7 +48,8 @@ function NewFileModal({ initialPath = '' }) {
         'go': 'go',
         'kt': 'kotlin',
         'cs': 'csharp',
-        'rb': 'ruby'
+        'rb': 'ruby',
+        'roolts': 'roolts'
     };
 
     const handleFileNameChange = (e) => {
@@ -164,6 +165,7 @@ function NewFileModal({ initialPath = '' }) {
                         <option value="kotlin">Kotlin</option>
                         <option value="csharp">C#</option>
                         <option value="ruby">Ruby</option>
+                        <option value="roolts">Roolts</option>
                     </select>
                 </div>
                 <div className="modal__footer">

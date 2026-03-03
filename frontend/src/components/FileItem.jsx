@@ -1,6 +1,7 @@
 import React from 'react';
 import { FiX } from 'react-icons/fi';
 import { getFileIcon } from '../services/iconHelper.jsx';
+import { useSettingsStore } from '../store';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -53,7 +54,11 @@ const FileItem = React.memo(({ file, activeFileId, renamingId, openFile, handleC
                     }}
                 />
             ) : (
-                <span className="file-item__name" style={{ flex: 1 }}>{file.name}</span>
+                <span className="file-item__name" style={{ flex: 1 }}>
+                    {useSettingsStore.getState().features.hideExtensions && file.name.includes('.')
+                        ? file.name.substring(0, file.name.lastIndexOf('.'))
+                        : file.name}
+                </span>
             )}
 
             <button

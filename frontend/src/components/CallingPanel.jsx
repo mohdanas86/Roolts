@@ -122,18 +122,32 @@ const CallingPanel = ({ onBack }) => {
 
         setView('calling');
         setCallStatus('Connecting...');
+        collaborationService.connect();
         collaborationService.joinRoom(roomId, username);
-        setTimeout(() => setCallStatus('Connected. Ready to share.'), 1000);
+
+        // Poll for actual connection instead of hardcoded delay
+        let retries = 0;
+        const checkConnection = setInterval(() => {
+            retries++;
+            if (collaborationService.isConnected()) {
+                clearInterval(checkConnection);
+                setCallStatus('Connected. Ready to share.');
+            } else if (retries > 10) {
+                clearInterval(checkConnection);
+                setCallStatus('Connection may be slow. Try again if issues persist.');
+            }
+        }, 500);
     };
 
     const handleScreenShare = async () => {
         if (isScreenSharing) {
+            // Stop sharing
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
             }
             setLocalStream(null);
-            collaborationService.replaceStream(localStream, null);
             setIsScreenSharing(false);
+            setCallStatus('Screen sharing stopped.');
         } else {
             try {
                 const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -143,9 +157,19 @@ const CallingPanel = ({ onBack }) => {
                 setLocalStream(stream);
                 collaborationService.setLocalStream(stream);
                 setIsScreenSharing(true);
-                stream.getVideoTracks()[0].onended = () => handleScreenShare();
+                setCallStatus('Sharing your screen.');
+
+                // When user clicks 'Stop sharing' in the browser bar
+                stream.getVideoTracks()[0].onended = () => {
+                    // Direct cleanup — avoid recursive call to handleScreenShare
+                    stream.getTracks().forEach(track => track.stop());
+                    setLocalStream(null);
+                    setIsScreenSharing(false);
+                    setCallStatus('Screen sharing stopped.');
+                };
             } catch (err) {
                 console.error("Failed to share screen", err);
+                setCallStatus('Screen share cancelled.');
             }
         }
     };
@@ -336,8 +360,28 @@ const CallingPanel = ({ onBack }) => {
                             <button onClick={handleScreenShare} title={isScreenSharing ? 'Stop Sharing' : 'Share My Window'} style={{ padding: '12px 24px', borderRadius: '25px', backgroundColor: isScreenSharing ? '#e74c3c' : '#3498db', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
                                 <FiMonitor /> {isScreenSharing ? 'Stop Sharing' : 'Share Window'}
                             </button>
-                            <button onClick={requestControl} title="Request remote access" style={{ padding: '12px 24px', borderRadius: '25px', backgroundColor: hasControl ? '#2ecc71' : 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
-                                <FiMousePointer /> {hasControl ? 'Controlling...' : 'Request Remote Access'}
+                            <button
+                                onClick={requestControl}
+                                title="Request remote access"
+                                style={{
+                                    padding: '12px 24px',
+                                    borderRadius: '25px',
+                                    background: hasControl
+                                        ? 'linear-gradient(135deg, #2ecc71, #27ae60)'
+                                        : 'linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05))',
+                                    border: hasControl ? 'none' : '1px solid rgba(255,255,255,0.2)',
+                                    color: 'white',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    fontWeight: 600,
+                                    boxShadow: hasControl ? '0 4px 15px rgba(46, 204, 113, 0.4)' : 'none',
+                                    transition: 'all 0.2s',
+                                    animation: hasControl ? 'pulse 2s infinite' : 'none'
+                                }}
+                            >
+                                <FiMousePointer size={18} /> {hasControl ? 'Controlling Remote...' : 'Request Remote Access'}
                             </button>
                             <button onClick={() => setShowChat(!showChat)} style={{ padding: '14px', borderRadius: '50%', backgroundColor: showChat ? '#9b59b6' : 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer' }}>
                                 <FiMessageSquare color="white" size={20} />
@@ -384,15 +428,101 @@ const CallingPanel = ({ onBack }) => {
 
                     {/* Control Request Popup */}
                     {controlRequest && (
-                        <div style={{ position: 'absolute', top: '80px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#333', padding: '20px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 8px 30px rgba(0,0,0,0.6)', zIndex: 100, border: '1px solid #444' }}>
-                            <div style={{ fontSize: '24px' }}>🖱️</div>
-                            <div>
-                                <div style={{ fontSize: '14px', fontWeight: 600 }}>{controlRequest.username} wants to control your window</div>
-                                <div style={{ fontSize: '12px', color: '#aaa', marginTop: '4px' }}>They will be able to move your mouse and type.</div>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', marginLeft: '10px' }}>
-                                <button onClick={() => setControlRequest(null)} style={{ padding: '8px 16px', backgroundColor: '#555', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px' }}>Deny</button>
-                                <button onClick={grantControl} style={{ padding: '8px 16px', backgroundColor: '#2ecc71', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>Grant Access</button>
+                        <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0,0,0,0.6)',
+                            backdropFilter: 'blur(4px)',
+                            WebkitBackdropFilter: 'blur(4px)',
+                            zIndex: 9998,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            animation: 'fadeIn 0.2s ease-out'
+                        }}>
+                            <div style={{
+                                backgroundColor: '#222',
+                                padding: '30px',
+                                borderRadius: '16px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '20px',
+                                width: '360px',
+                                boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                animation: 'scaleUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+                            }}>
+                                <div style={{
+                                    width: '64px',
+                                    height: '64px',
+                                    borderRadius: '50%',
+                                    background: 'linear-gradient(135deg, rgba(52, 152, 219, 0.2), rgba(41, 128, 185, 0.1))',
+                                    border: '1px solid rgba(52, 152, 219, 0.5)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#3498db',
+                                    fontSize: '32px',
+                                    marginBottom: '4px'
+                                }}>
+                                    <FiMousePointer />
+                                </div>
+
+                                <div style={{ textAlign: 'center' }}>
+                                    <h3 style={{ fontSize: '18px', fontWeight: 600, margin: '0 0 8px 0', color: 'white' }}>
+                                        Remote Control Request
+                                    </h3>
+                                    <p style={{ fontSize: '14px', color: '#aaa', margin: 0, lineHeight: '1.5' }}>
+                                        <strong style={{ color: 'white' }}>{controlRequest.username}</strong> would like to control your screen.
+                                        They will be able to move your mouse and type on your keyboard.
+                                    </p>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '12px', width: '100%', marginTop: '8px' }}>
+                                    <button
+                                        onClick={() => setControlRequest(null)}
+                                        style={{
+                                            flex: 1,
+                                            padding: '12px',
+                                            backgroundColor: 'transparent',
+                                            border: '1px solid #555',
+                                            borderRadius: '8px',
+                                            color: '#bbb',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            fontWeight: 600,
+                                            transition: 'all 0.2s',
+                                        }}
+                                        onMouseEnter={(e) => { e.target.style.backgroundColor = '#333'; e.target.style.color = 'white'; }}
+                                        onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#bbb'; }}
+                                    >
+                                        Deny
+                                    </button>
+                                    <button
+                                        onClick={grantControl}
+                                        style={{
+                                            flex: 1,
+                                            padding: '12px',
+                                            background: 'linear-gradient(135deg, #3498db, #2980b9)',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            fontWeight: 600,
+                                            boxShadow: '0 4px 15px rgba(52, 152, 219, 0.4)',
+                                            transition: 'transform 0.1s'
+                                        }}
+                                        onMouseDown={(e) => e.target.style.transform = 'scale(0.98)'}
+                                        onMouseUp={(e) => e.target.style.transform = 'scale(1)'}
+                                    >
+                                        Grant Access
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}

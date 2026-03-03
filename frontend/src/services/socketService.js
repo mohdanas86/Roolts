@@ -12,7 +12,6 @@ class SocketService {
         if (this.socket) return this.socket;
 
         this.socket = io(backendUrl, {
-            transports: ['websocket'],
             autoConnect: true,
             reconnection: true
         });

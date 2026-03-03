@@ -274,6 +274,46 @@ def get_executable_path(lang_key, tool_name):
     
     return tool_name
 
+def get_runtime_status(lang_key):
+    """
+    Checks if a runtime is installed and returns its status/version.
+    """
+    config = RUNTIME_CONFIG.get(lang_key)
+    if not config:
+        return {'available': False, 'status': 'unsupported'}
+    
+    # Check if first executable exists in portable runtimes
+    first_exe_name = list(config['executables'].keys())[0]
+    portable_exe = get_executable_path(lang_key, first_exe_name)
+    
+    is_portable = os.path.exists(portable_exe)
+    is_system = is_tool_installed(first_exe_name) if not is_portable else False
+    
+    if is_portable:
+        return {
+            'available': True,
+            'type': 'portable',
+            'status': 'ready',
+            'path': portable_exe
+        }
+    elif is_system:
+        return {
+            'available': True,
+            'type': 'system',
+            'status': 'system-path',
+            'path': first_exe_name
+        }
+    else:
+        return {
+            'available': False,
+            'type': 'none',
+            'status': 'missing'
+        }
+
+def get_all_runtime_statuses():
+    """Returns status for all configured runtimes."""
+    return {lang: get_runtime_status(lang) for lang in RUNTIME_CONFIG}
+
 def get_runtime_root(lang_key):
     """Returns the root directory of a runtime (e.g., GOROOT)."""
     config = RUNTIME_CONFIG.get(lang_key)

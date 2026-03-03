@@ -4,7 +4,7 @@
  * extracted from real VS Code extension packages.
  */
 
-import { useExtensionStore } from '../store';
+import { useExtensionStore, useSettingsStore } from '../store';
 
 class ExtensionLoader {
     constructor() {
@@ -75,10 +75,14 @@ class ExtensionLoader {
                 console.error(`Failed to load theme ${theme.label} from ${ext.id}:`, err);
 
                 // If this was the active theme, fallback to vs-dark
-                const currentTheme = useSettingsStore.getState().theme;
-                if (currentTheme === (theme.label || theme.id)) {
-                    console.warn(`>>> Falling back to vs-dark because theme ${currentTheme} failed to load.`);
-                    useSettingsStore.getState().setTheme('vs-dark');
+                try {
+                    const currentTheme = useSettingsStore.getState().theme;
+                    if (currentTheme === (theme.label || theme.id)) {
+                        console.warn(`>>> Falling back to vs-dark because theme ${currentTheme} failed to load.`);
+                        useSettingsStore.getState().setTheme('vs-dark');
+                    }
+                } catch (fallbackErr) {
+                    console.warn('Could not check/set fallback theme:', fallbackErr);
                 }
             }
         }
@@ -129,7 +133,7 @@ class ExtensionLoader {
             try {
                 // Snippet content is a JSON string or object
                 const snippetsRaw = typeof snippetSet.content === 'string'
-                    ? JSON.parse(snippetSet.content.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '')) // Strip comments
+                    ? JSON.parse(snippetSet.content.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '').replace(/,\s*([\]}])/g, '$1')) // Strip comments and trailing commas
                     : snippetSet.content;
 
                 const provider = monaco.languages.registerCompletionItemProvider(language, {

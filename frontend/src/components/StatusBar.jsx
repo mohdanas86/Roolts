@@ -1,11 +1,15 @@
-import { FiCheckCircle, FiAlertCircle, FiCpu, FiTerminal, FiGrid, FiBookOpen } from 'react-icons/fi';
+import { FiCheckCircle, FiAlertCircle, FiCpu, FiTerminal, FiGrid } from 'react-icons/fi';
+import AILogo from './AILogo';
 import { useFileStore, useUIStore } from '../store';
 import { getFileIcon } from '../services/iconHelper.jsx';
 
 function StatusBar({ terminalOpen, setTerminalOpen }) {
-    const { files, activeFileId } = useFileStore();
-    const activeFile = files.find((f) => f.id === activeFileId);
-    const { toggleRightPanel, setRightPanelTab, rightPanelOpen, rightPanelTab } = useUIStore();
+    const activeFile = useFileStore(state => state.files.find(f => f.id === state.activeFileId));
+
+    const toggleRightPanel = useUIStore(state => state.toggleRightPanel);
+    const setRightPanelTab = useUIStore(state => state.setRightPanelTab);
+    const rightPanelOpen = useUIStore(state => state.rightPanelOpen);
+    const rightPanelTab = useUIStore(state => state.rightPanelTab);
 
     return (
         <div className="status-bar">
@@ -47,7 +51,7 @@ function StatusBar({ terminalOpen, setTerminalOpen }) {
                     title="Open Roolts AI"
                     style={{ padding: '0 8px', height: '100%', borderRadius: 0, border: 'none' }}
                 >
-                    <FiBookOpen size={13} style={{ color: 'var(--accent-primary)' }} />
+                    <AILogo size={13} active={rightPanelOpen && rightPanelTab === 'learn'} />
                 </button>
 
                 <button

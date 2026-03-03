@@ -41,13 +41,14 @@ class AIExplainerService:
         start_time = time.time()
         
         system_prompt = (
-            "You are an expert code explainer. Your goal is to explain code clearly and structured for a developer. "
+            "You are an expert code explainer and senior debugger. Your goal is to explain code clearly and help fix runtime errors. "
+            "If a terminal error or stack trace is provided in the query, your PRIMARY GOAL is to identify the root cause of that error and explain how to fix it in the code provided. "
             "You must return your response in valid JSON format ONLY. "
             "The JSON structure must be: "
             "{"
-            "  'overview': 'Brief summary of what the code does', "
+            "  'overview': 'Brief summary of what the code does or what error occurred', "
             "  'key_concepts': ['concept1', 'concept2'], "
-            "  'logic_flow': 'Step-by-step description of execution flow', "
+            "  'logic_flow': 'Step-by-step description of execution flow or where the error happens', "
             "  'complexity': 'Time and Space complexity analysis', "
             "  'improvement_suggestions': ['suggestion1', 'suggestion2'], "
             "  'diagram_description': 'Description for a flowchart or sequence diagram (optional)'"
@@ -56,7 +57,7 @@ class AIExplainerService:
 
         user_prompt = f"Explain the following {language} code:\n\n```{language}\n{code}\n```"
         if context_query:
-            user_prompt += f"\n\nFocus on this question: {context_query}"
+            user_prompt += f"\n\n### CRITICAL: DEBUGGING CONTEXT\nI encountered the following terminal error while running this code:\n```\n{context_query}\n```\n\nPlease analyze where the error occurs (file/line) and why it happens."
 
         # Check Cache
         cache_key = response_cache._generate_key("explain", code, language, context_query)

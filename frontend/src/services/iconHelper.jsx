@@ -27,6 +27,7 @@ export const getFileIcon = (language) => {
         ruby: <SiRuby style={{ ...reactIconStyle, color: '#CC342D' }} />,
         php: <SiPhp style={{ ...reactIconStyle, color: '#777BB4' }} />,
         swift: <SiSwift style={{ ...reactIconStyle, color: '#FA7343' }} />,
+        roolts: <div style={{ ...reactIconStyle, width: '16px', height: '16px', borderRadius: '4px', background: 'var(--accent-gradient)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 'bold' }}>R</div>,
         default: <FiFile style={{ ...reactIconStyle, color: 'var(--text-muted)' }} />
     };
 

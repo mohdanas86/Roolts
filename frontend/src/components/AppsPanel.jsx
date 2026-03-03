@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { FiGrid, FiActivity, FiMessageSquare, FiCode, FiPhone, FiCpu, FiMusic, FiPackage, FiSettings, FiCamera, FiChrome, FiMap, FiMail, FiZap, FiBookOpen, FiMonitor } from 'react-icons/fi';
+import { FiGrid, FiActivity, FiMessageSquare, FiCode, FiPhone, FiCpu, FiMusic, FiPackage, FiSettings, FiCamera, FiChrome, FiMap, FiMail, FiZap, FiBookOpen, FiMonitor, FiImage } from 'react-icons/fi';
 import CallingPanel from './CallingPanel';
-import { useSettingsStore } from '../store';
+import { useSettingsStore, useUIStore } from '../store';
 import {
     DndContext,
     closestCenter,
@@ -100,16 +100,21 @@ const SortableAppItem = ({ app, onOpenApp, setActiveAppId }) => {
 };
 
 const AppsPanel = ({ onOpenApp }) => {
+    const openApp = useUIStore(state => state.openApp);
     const [activeAppId, setActiveAppId] = useState(null);
-    const { experimental, appOrder, reorderApps } = useSettingsStore();
+    const experimental = useSettingsStore(state => state.experimental);
+    const appOrder = useSettingsStore(state => state.appOrder);
+    const reorderApps = useSettingsStore(state => state.reorderApps);
 
     // Built-in apps
     const baseApps = [
         { id: 'notes', name: 'Notes', icon: <FiMessageSquare />, color: '#f1c40f' },
-        { id: 'learn', name: 'Learn', icon: <FiBookOpen />, color: '#7f5af0' },
+        { id: 'learn_app', name: 'Learn', icon: <FiBookOpen />, color: '#7f5af0' },
         { id: 'codechamp', name: 'CodeChamp', icon: <FiZap />, color: '#8e44ad' },
+        ...(experimental?.snapshots ? [{ id: 'snapshots', name: 'Snapshots', icon: <FiImage />, color: '#ff6b81' }] : []),
         { id: 'quickpython', name: 'Quick Python', icon: <FiCode />, color: '#3498db' },
-        { id: 'calls', name: 'Collaboration', icon: <FiMonitor />, color: '#2ecc71' },
+        ...(experimental?.collaborativeHub ? [{ id: 'calls', name: 'Collaboration', icon: <FiMonitor />, color: '#2ecc71' }] : []),
+        { id: 'extensions', name: 'Extensions', icon: <FiPackage />, color: '#e74c3c' },
     ];
 
     const [orderedApps, setOrderedApps] = useState(baseApps);
@@ -132,7 +137,7 @@ const AppsPanel = ({ onOpenApp }) => {
         } else {
             setOrderedApps(baseApps);
         }
-    }, [experimental?.vscodeApp, appOrder]);
+    }, [experimental?.snapshots, experimental?.vscodeApp, appOrder]);
 
 
     const sensors = useSensors(
@@ -192,7 +197,10 @@ const AppsPanel = ({ onOpenApp }) => {
                             <SortableAppItem
                                 key={app.id}
                                 app={app}
-                                onOpenApp={onOpenApp}
+                                onOpenApp={(id) => {
+                                    openApp(id);
+                                    if (onOpenApp) onOpenApp(id);
+                                }}
                                 setActiveAppId={setActiveAppId}
                             />
                         ))}

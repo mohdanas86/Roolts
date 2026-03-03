@@ -26,6 +26,7 @@ openai>=1.6.0
 # Utilities
 mermaid-py>=0.3.0
 pyyaml>=6.0.0
+beautifulsoup4>=4.12.0
 
 # Note: API keys needed for AI providers:
 # - GEMINI_API_KEY for Google Gemini

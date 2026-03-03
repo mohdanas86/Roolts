@@ -31,6 +31,13 @@ export const executorService = {
     },
 
     /**
+     * Start a GUI application sandbox via Socket.IO
+     */
+    startApp: (code, language) => {
+        socketService.emit('exec:start-app', { code, language });
+    },
+
+    /**
      * Send input to the running execution
      */
     sendInput: (data) => {
@@ -102,7 +109,7 @@ export const executorService = {
     /**
      * Execute code with specified language
      */
-    execute: async (code, language, filename, input = '') => {
+    execute: async (code, language, filename, input = '', testCases = [], additionalFiles = []) => {
         try {
             const { experimental } = useSettingsStore.getState();
             const leetcodeMode = experimental?.leetcodeMode || false;
@@ -112,7 +119,9 @@ export const executorService = {
                 language,
                 filename,
                 input,
-                leetcode_mode: leetcodeMode
+                leetcode_mode: leetcodeMode,
+                test_cases: leetcodeMode ? testCases : [],
+                additionalFiles
             });
             return response.data;
         } catch (error) {
@@ -122,6 +131,27 @@ export const executorService = {
                 output: ''
             };
         }
+    },
+
+    /**
+     * Execute code with all open project files for cross-file imports.
+     * Gathers all files from the store and sends them as additionalFiles.
+     */
+    executeWithProject: async (code, language, filename, input = '', testCases = []) => {
+        // Import file store dynamically to avoid circular deps
+        const { useFileStore } = await import('../store');
+        const files = useFileStore.getState().files;
+
+        // Build additionalFiles array from all open files EXCEPT the active one
+        const additionalFiles = files
+            .filter(f => f.name !== filename)
+            .map(f => ({
+                name: f.name,
+                content: f.content || '',
+                binary: false
+            }));
+
+        return executorService.execute(code, language, filename, input, testCases, additionalFiles);
     },
 
     // ============ Helpers ============

@@ -6,8 +6,18 @@ import { socketService } from '../services/socketService';
 import { executorService } from '../services/executorService';
 
 function TerminalPanel() {
-    const { lines, commandHistory, cwd, isRunning, addLine, addCommand, setCwd, setRunning, clearTerminal, getFromHistory } = useTerminalStore();
-    const { addNotification } = useUIStore();
+    const lines = useTerminalStore(state => state.lines);
+    const commandHistory = useTerminalStore(state => state.commandHistory);
+    const cwd = useTerminalStore(state => state.cwd);
+    const isRunning = useTerminalStore(state => state.isRunning);
+    const addLine = useTerminalStore(state => state.addLine);
+    const addCommand = useTerminalStore(state => state.addCommand);
+    const setCwd = useTerminalStore(state => state.setCwd);
+    const setRunning = useTerminalStore(state => state.setRunning);
+    const clearTerminal = useTerminalStore(state => state.clearTerminal);
+    const getFromHistory = useTerminalStore(state => state.getFromHistory);
+
+    const addNotification = useUIStore(state => state.addNotification);
     const [input, setInput] = useState('');
     const terminalRef = useRef(null);
     const inputRef = useRef(null);

@@ -10,7 +10,7 @@ const USER_KEY = 'roolts_user';
 
 export const authService = {
     // ============ Authentication ============
-    
+
     /**
      * Register a new user
      */
@@ -19,6 +19,7 @@ export const authService = {
         if (response.data.token) {
             localStorage.setItem(TOKEN_KEY, response.data.token);
             localStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
+            window.dispatchEvent(new Event('roolts-auth-change'));
         }
         return response.data;
     },
@@ -31,6 +32,7 @@ export const authService = {
         if (response.data.token) {
             localStorage.setItem(TOKEN_KEY, response.data.token);
             localStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
+            window.dispatchEvent(new Event('roolts-auth-change'));
         }
         return response.data;
     },
@@ -41,6 +43,7 @@ export const authService = {
     logout: () => {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
+        window.dispatchEvent(new Event('roolts-auth-change'));
     },
 
     /**
@@ -122,6 +125,27 @@ export const authService = {
      */
     linkedinCallback: async (code, state) => {
         const response = await api.post('/auth/linkedin/callback', { code, state });
+        return response.data;
+    },
+
+    /**
+     * Get Google OAuth URL
+     */
+    connectGoogle: async () => {
+        const response = await api.get('/auth/google/connect');
+        return response.data.auth_url;
+    },
+
+    /**
+     * Handle Google OAuth callback
+     */
+    googleCallback: async (code) => {
+        const response = await api.post('/auth/google/callback', { code });
+        if (response.data.token) {
+            localStorage.setItem(TOKEN_KEY, response.data.token);
+            localStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
+            window.dispatchEvent(new Event('roolts-auth-change'));
+        }
         return response.data;
     },
 

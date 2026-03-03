@@ -1,8 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiTerminal, FiRefreshCw, FiExternalLink, FiMaximize, FiArrowLeft, FiTrash2 } from 'react-icons/fi';
+import { useUIStore } from '../../store';
 
 const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
-    const [output, setOutput] = useState([]);
+    const [executionOutput, setExecutionOutput] = useState([]);
+
+    const addExecutionLine = (line) => setExecutionOutput(prev => [...prev, line]);
+    const clearExecutionOutput = () => setExecutionOutput([]);
+
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [pyodide, setPyodide] = useState(null);
@@ -28,10 +33,14 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
 
         // Update callbacks to point to current component instance
         window.rooltsPyodideCallbacks.stdout = (text) => {
-            if (isMounted) setOutput(prev => [...prev, { type: 'output', content: text }]);
+            if (isMounted) {
+                addExecutionLine({ type: 'output', content: text });
+            }
         };
         window.rooltsPyodideCallbacks.stderr = (text) => {
-            if (isMounted) setOutput(prev => [...prev, { type: 'error', content: text }]);
+            if (isMounted) {
+                addExecutionLine({ type: 'error', content: text });
+            }
         };
 
         const loadPython = async () => {
@@ -88,11 +97,8 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
                     if (isMounted) {
                         setPyodide(py);
                         setIsLoading(false);
-                        setOutput(prev => [
-                            ...prev,
-                            { type: 'system', content: `Python ${py.runPython('import sys; sys.version').split('[')[0]}` },
-                            { type: 'system', content: 'Type "help", "copyright", "credits" or "license" for more information.' }
-                        ]);
+                        addExecutionLine({ type: 'system', content: `Python ${py.runPython('import sys; sys.version').split('[')[0]}` });
+                        addExecutionLine({ type: 'system', content: 'Type "help", "copyright", "credits" or "license" for more information.' });
                     }
                 } else {
                     if (isMounted) {
@@ -105,14 +111,14 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
                 if (isMounted) {
                     console.error("Pyodide Load Error:", err);
                     if (retryCount < MAX_RETRIES) {
-                        setOutput(prev => [...prev, { type: 'error', content: `Load failed. Retrying (${retryCount + 1}/${MAX_RETRIES})...` }]);
+                        addExecutionLine({ type: 'error', content: `Load failed. Retrying (${retryCount + 1}/${MAX_RETRIES})...` });
                         setTimeout(() => {
                             if (isMounted) {
                                 setRetryCount(prev => prev + 1);
                             }
                         }, 2000);
                     } else {
-                        setOutput(prev => [...prev, { type: 'error', content: `Failed to load Python: ${err.message}. Please refresh.` }]);
+                        addExecutionLine({ type: 'error', content: `Failed to load Python: ${err.message}. Please refresh.` });
                         setIsLoading(false);
                     }
                 }
@@ -129,16 +135,16 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
     // Auto-scroll
     useEffect(() => {
         outputEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [output]);
+    }, [executionOutput]);
 
     const handleRun = async (cmd) => {
         if (!cmd.trim()) {
-            setOutput(prev => [...prev, { type: 'command', content: '' }]);
+            addExecutionLine({ type: 'command', content: '' });
             return;
         }
 
         // Add to output
-        setOutput(prev => [...prev, { type: 'command', content: cmd }]);
+        addExecutionLine({ type: 'command', content: cmd });
 
         // Add to history
         const newHistory = [...history, cmd];
@@ -146,23 +152,19 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
         setHistoryIndex(newHistory.length);
 
         if (!pyodide) {
-            setOutput(prev => [...prev, { type: 'error', content: 'Python is not ready yet.' }]);
+            addExecutionLine({ type: 'error', content: 'Python is not ready yet.' });
             return;
         }
 
         try {
-            // Check if it's an expression or statement
-            // We want to print the result if it's an expression (like REPL)
-            // A simple heuristic is to try evaluating it. 
-            // However, pyodide.runPython returns the result of the last expression.
             const result = await pyodide.runPythonAsync(cmd);
             if (result !== undefined) {
-                setOutput(prev => [...prev, { type: 'result', content: String(result) }]);
+                addExecutionLine({ type: 'result', content: String(result) });
             }
         } catch (err) {
             // Format error nicely
             const errorMsg = err.toString().split('PythonError: Traceback (most recent call last):')[1] || err.toString();
-            setOutput(prev => [...prev, { type: 'error', content: errorMsg.trim() }]);
+            addExecutionLine({ type: 'error', content: errorMsg.trim() });
         }
     };
 
@@ -190,7 +192,7 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
             }
         } else if (e.key === 'l' && e.ctrlKey) {
             e.preventDefault();
-            setOutput([]);
+            clearExecutionOutput();
         }
     };
 
@@ -226,20 +228,16 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
                     <span style={{ fontWeight: 600 }}>Quick Python</span>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => setOutput([])} className="btn btn--ghost btn--icon" title="Clear Console (Ctrl+L)">
+                    <button onClick={() => { clearExecutionOutput(); }} className="btn btn--ghost btn--icon" title="Clear Console (Ctrl+L)">
                         <FiTrash2 size={14} color="#ccc" />
                     </button>
                     {!isWindowed && (
                         <>
                             <button onClick={() => {
-                                setOutput([]);
+                                clearExecutionOutput();
                                 setRetryCount(0);
                                 setIsLoading(true);
                                 window.rooltsPyodide = null; // Force reload
-                                // Ideally we should reload the component or re-trigger the effect, 
-                                // but setting retryCount to 0 (or a new state) will trigger the effect again.
-                                // However, we need to ensure global state is cleared or handled.
-                                // simpler: 
                                 setRetryCount(c => c + 1);
                             }} className="btn btn--ghost btn--icon" title="Reset Environment">
                                 <FiRefreshCw size={14} color="#ccc" />
@@ -299,7 +297,7 @@ const QuickPythonApp = ({ isWindowed, onPopOut, onOpenNewWindow, onBack }) => {
                     </div>
                 )}
 
-                {output.map((line, i) => (
+                {executionOutput.map((line, i) => (
                     <div key={i} style={{
                         marginBottom: '4px',
                         whiteSpace: 'pre-wrap',

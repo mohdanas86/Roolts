@@ -8,6 +8,8 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 from pathlib import Path
+import re
+import traceback
 
 # Load environment variables from .env file in the same directory as app.py
 env_path = Path(__file__).parent / '.env'
@@ -331,6 +333,27 @@ import os # Added for os.name and os.remove
 active_execs = {} # sid -> {socket, thread, running, type, ...}
 exec_lock = threading.Lock() # Global lock for thread-safe access to active_execs
 
+def detect_gui_requirements(code, language):
+    """Detect if the code requires a GUI environment (VNC)."""
+    if language == 'python':
+        gui_patterns = [
+            r'import\s+tkinter', r'from\s+tkinter',
+            r'import\s+pygame', r'from\s+pygame',
+            r'import\s+turtle', r'from\s+turtle',
+            r'import\s+PyQt', r'from\s+PyQt',
+            r'import\s+PySide', r'from\s+PySide',
+            r'import\s+customtkinter', r'from\s+customtkinter',
+            r'import\s+kivy', r'from\s+kivy'
+        ]
+        for pattern in gui_patterns:
+            if re.search(pattern, code):
+                return True
+    elif language in ['javascript', 'js']:
+        # Most JS GUI apps are web-based, but if they use electron or similar (unlikely here)
+        # For now, we mainly focus on Python GUIs.
+        pass
+    return False
+
 @socketio.on('exec:start')
 def handle_exec_start(data):
     """Start an interactive execution (Docker with Local Fallback)"""
@@ -348,6 +371,15 @@ def handle_exec_start(data):
     language = data.get('language', 'python').lower() # Normalize to lowercase
     
     print(f"[Exec-SocketIO] START requested language={language} sid={sid[:8]}")
+    
+    # 0.5. Automatic GUI Detection
+    if detect_gui_requirements(code, language):
+        print(f"[Exec-SocketIO] GUI requirements detected for {sid[:8]}. Redirecting to App Sandbox.")
+        emit('exec:gui-mode', {'language': language})
+        emit('exec:data', {'data': f">>> GUI requirements detected. Launching VNC Sandbox...\n"})
+        handle_exec_start_app(data)
+        return
+
     emit('exec:data', {'data': f">>> Initializing {language} environment...\n"})
     
     try:
@@ -670,6 +702,81 @@ def handle_exec_start(data):
         traceback.print_exc()
         emit('exec:error', {'error': str(e)})
 
+@socketio.on('exec:start-app')
+def handle_exec_start_app(data):
+    """Start an interactive GUI/Web Application (Docker VNC)"""
+    sid = request.sid
+    
+    with exec_lock:
+        if sid in active_execs:
+            print(f"[Exec-SocketIO] Stopping existing execution for {sid[:8]} before new start")
+            _internal_stop_execution(sid, emit_finished=False)
+            
+    code = data.get('code', '')
+    language = data.get('language', 'python').lower()
+    
+    print(f"[Exec-SocketIO] APP START requested language={language} sid={sid[:8]}")
+    try:
+        docker_manager = get_docker_manager()
+        if not docker_manager.client:
+           print(f"[Exec-SocketIO] Docker not available, silently falling back to local execution for {sid[:8]}")
+           
+           # Reuse local execution logic
+           handle_exec_start(data)
+           return
+
+        emit('exec:data', {'data': f">>> Initializing {language} GUI Sandbox Environment...\n"})
+        
+        # Always create a fresh vnc container to avoid state collision
+        container_id, _ = docker_manager.create_environment(0, int(time.time()), 'vnc', f"gui_{language}")
+        docker_manager.start_environment(container_id)
+        
+        # Give VNC Server time to boot inside the container
+        import time
+        time.sleep(2)
+        
+        # Write code to a file in the container
+        file_path = f"/workspace/app"
+        if language == 'python': file_path += ".py"
+        elif language in ['javascript', 'js']: file_path += ".js"
+        
+        from services.file_manager import get_file_manager
+        file_manager = get_file_manager()
+        file_manager.write_file(container_id, file_path, code)
+        
+        # Execute the code in the background disconnected from the socket pipeline
+        # since VNC will be visual
+        cmd = ""
+        if language == 'python': cmd = f"DISPLAY=:1 python3 {file_path} > /workspace/app.log 2>&1 &"
+        elif language in ['javascript', 'js']: cmd = f"DISPLAY=:1 node {file_path} > /workspace/app.log 2>&1 &"
+        
+        docker_manager.execute_command(container_id, cmd)
+        
+        # Find the randomly assigned host port mapped to 80 (NoVNC)
+        container_info = docker_manager.client.api.inspect_container(container_id)
+        ports = container_info['NetworkSettings']['Ports']
+        port_80_mapping = ports.get('80/tcp')
+        
+        if not port_80_mapping:
+            raise Exception("Failed to map NoVNC port out of Docker container.")
+            
+        mapped_port = port_80_mapping[0]['HostPort']
+        
+        # We track this executor so we can stop it when the user clicks 'Stop'
+        with exec_lock:
+            active_execs[sid] = {
+                'type': 'docker-app',
+                'container_id': container_id,
+                'running': True
+            }
+            
+        emit('exec:app-ready', {'port': mapped_port})
+        emit('exec:data', {'data': f">>> App running in VNC Sandbox. Connecting to port {mapped_port}...\n"})
+        
+    except Exception as e:
+        print(f"[Exec-SocketIO] VNC App start failed: {e}")
+        emit('exec:error', {'error': f"Failed to start GUI app: {str(e)}"})
+
 @socketio.on('exec:input')
 def handle_exec_input(data):
     """Send input to the running execution (Docker or Local)"""
@@ -730,6 +837,13 @@ def _internal_stop_execution(sid, emit_finished=True):
                 try: exec_data['socket'].close()
                 except: pass
                 # Note: exec_id cleanup is automated by Docker when socket closes
+            elif exec_data['type'] == 'docker-app':
+                # GUI Docker cleanup (Destroy container fully to release ports)
+                try:
+                    docker_manager = get_docker_manager()
+                    docker_manager.destroy_environment(exec_data['container_id'])
+                except Exception as e:
+                    print(f"[Exec-SocketIO] App container cleanup failed: {e}")
             elif exec_data['type'] == 'local':
                 # Local process cleanup
                 proc = exec_data.get('process')

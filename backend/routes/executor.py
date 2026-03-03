@@ -14,7 +14,7 @@ import re
 from flask import Blueprint, jsonify, request
 import traceback
 from pathlib import Path
-from utils.compiler_manager import get_gcc_path, get_gplusplus_path, get_executable_path, get_runtime_root, setup_runtime
+from utils.compiler_manager import get_gcc_path, get_gplusplus_path, get_executable_path, get_runtime_root, setup_runtime, get_all_runtime_statuses
 
 executor_bp = Blueprint('executor', __name__)
 
@@ -66,8 +66,40 @@ def execute_code():
     if not code:
         return jsonify({'success': False, 'error': 'No code provided'}), 400
 
+    # Strip out rooltscommand image placement comments from code before execution
+    code = re.sub(r'^(#|//|<!--|--)\s*#rooltscommand placeimage.*$', '', code, flags=re.MULTILINE)
+
     # Create a unique temporary directory for this execution
     temp_dir = tempfile.mkdtemp(prefix='roolts_exec_')
+
+    # ── Write additional project files so cross-file imports work ──
+    additional_files = data.get('additionalFiles', [])
+    for af in additional_files:
+        af_name = af.get('name', '')
+        af_content = af.get('content', '')
+        if not af_name:
+            continue
+        af_path = os.path.join(temp_dir, af_name)
+        # Create subdirectories if the file has a path component
+        os.makedirs(os.path.dirname(af_path), exist_ok=True) if os.path.dirname(af_path) else None
+
+        # Check if content is base64 (for binary files like images, CSVs with BOM, etc.)
+        is_binary = af.get('binary', False)
+        if is_binary:
+            import base64
+            try:
+                # Handle data URL format: "data:...;base64,<data>"
+                if ',' in af_content and af_content.startswith('data:'):
+                    af_content = af_content.split(',', 1)[1]
+                with open(af_path, 'wb') as f:
+                    f.write(base64.b64decode(af_content))
+            except Exception as e:
+                print(f"[Executor] Failed to write binary file {af_name}: {e}")
+        else:
+            # Strip rooltscommand from additional files too
+            af_content = re.sub(r'^(#|//|<!--|--)\s*#rooltscommand placeimage.*$', '', af_content, flags=re.MULTILINE)
+            with open(af_path, 'w', encoding='utf-8') as f:
+                f.write(af_content)
     
     try:
         output = ""
@@ -75,26 +107,36 @@ def execute_code():
         success = False
         
         leetcode_mode = data.get('leetcode_mode', False)
+        lc_test_cases = data.get('test_cases', [])
         
-        if language == 'python':
-            # LeetCode Mode: Append runner if Solution class exists
-            if leetcode_mode and 'class Solution' in code:
-                # Don't append if there's already a main block
-                if '__name__ == "__main__"' not in code and 'if __name__ ==' not in code:
-                    code += "\n\n# --- LeetCode Mode Runner ---\n"
-                    code += "if __name__ == '__main__':\n"
-                    code += "    try:\n"
-                    code += "        sol = Solution()\n"
-                    # Find the first method that isn't private
-                    code += "        methods = [m for m in dir(sol) if not m.startswith('_') and callable(getattr(sol, m))]\n"
-                    code += "        if methods:\n"
-                    code += "            print(f'[LeetCode Mode] Detected Solution.{methods[0]}')\n"
-                    code += "            print('[Note] To provide custom test cases, add a main block at the end.')\n"
-                    code += "        else:\n"
-                    code += "            print('[LeetCode Mode] Solution class found but no methods detected.')\n"
-                    code += "    except Exception as e:\n"
-                    code += "        print(f'[LeetCode Mode] Error instantiating Solution: {e}')\n"
+        # === LeetCode Function Mode ===
+        # If leetcode_mode is on and we have test cases, generate a test harness
+        if leetcode_mode and lc_test_cases:
+            try:
+                from utils.leetcode_runner import generate_test_harness
+                harness_code = generate_test_harness(code, language, lc_test_cases)
+                if harness_code:
+                    code = harness_code
+            except Exception as e:
+                print(f"[LeetCode Runner] Harness generation error: {e}")
+                # Fall through to normal execution with original code
+        elif leetcode_mode and language == 'python' and 'class Solution' in code:
+            # Legacy fallback: if no test cases but leetcode mode on for Python
+            if '__name__ == "__main__"' not in code and 'if __name__ ==' not in code:
+                code += "\n\n# --- LeetCode Mode Runner ---\n"
+                code += "if __name__ == '__main__':\n"
+                code += "    try:\n"
+                code += "        sol = Solution()\n"
+                code += "        methods = [m for m in dir(sol) if not m.startswith('_') and callable(getattr(sol, m))]\n"
+                code += "        if methods:\n"
+                code += "            print(f'[LeetCode Mode] Detected Solution.{methods[0]}')\n"
+                code += "            print('[Note] Add test cases in CodeChamp to run them against your solution.')\n"
+                code += "        else:\n"
+                code += "            print('[LeetCode Mode] Solution class found but no methods detected.')\n"
+                code += "    except Exception as e:\n"
+                code += "        print(f'[LeetCode Mode] Error instantiating Solution: {e}')\n"
 
+        if language == 'python':
             fname = filename if filename and filename.endswith('.py') else 'script.py'
             file_path = os.path.join(temp_dir, fname)
             with open(file_path, 'w', encoding='utf-8') as f:
@@ -559,7 +601,9 @@ def executor_health_check():
 
 @executor_bp.route('/languages', methods=['GET'])
 def get_languages():
-    return jsonify([
+    statuses = get_all_runtime_statuses()
+    
+    languages = [
         {'id': 'python', 'name': 'Python', 'version': '3.x'},
         {'id': 'javascript', 'name': 'JavaScript', 'version': 'Node.js'},
         {'id': 'java', 'name': 'Java', 'version': 'OpenJDK'},
@@ -569,4 +613,18 @@ def get_languages():
         {'id': 'kotlin', 'name': 'Kotlin', 'version': '1.9.x'},
         {'id': 'csharp', 'name': 'C#', 'version': '.NET 8'},
         {'id': 'ruby', 'name': 'Ruby', 'version': '3.2.x'}
-    ])
+    ]
+    
+    # Enrich with runtime status
+    for lang in languages:
+        # Search for status using ID or a mapping if needed
+        status_key = lang['id']
+        if status_key == 'javascript': status_key = 'nodejs'
+        if status_key in ['c', 'cpp']: status_key = 'c_cpp'
+        
+        status = statuses.get(status_key, {'available': False, 'status': 'unknown'})
+        lang['available'] = status.get('available', False)
+        lang['type'] = status.get('type', 'none')
+        lang['runtime_status'] = status.get('status', 'missing')
+        
+    return jsonify(languages)

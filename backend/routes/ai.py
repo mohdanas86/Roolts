@@ -1,14 +1,26 @@
 import os
 import re
+import json
+import time
+import asyncio
+import base64
+import requests
+from bs4 import BeautifulSoup
+from functools import lru_cache
 from flask import Blueprint, jsonify, request
 from services.multi_ai import MultiAIService
-from services.vault import vault
-from routes.auth import get_current_user
-from utils.async_utils import run_async
-import asyncio
 from utils.compiler_context import get_compiler_summary
+from utils.async_utils import run_async
+from services.vault import vault
+from routes.auth import get_current_user, require_auth
+from models import db, ChatHistory
 
 ai_bp = Blueprint('ai', __name__)
+
+# Cache compiler summary so it's not regenerated on every request
+@lru_cache(maxsize=1)
+def _cached_compiler_summary():
+    return get_compiler_summary()
 
 
 @ai_bp.route('/status', methods=['GET'])
@@ -48,6 +60,7 @@ def get_ai_service():
     
     # 2. Environment variables override vault
     env_keys = {
+        'openai': os.getenv('OPENAI_API_KEY'),
         'gemini': os.getenv('GEMINI_API_KEY'),
         'claude': os.getenv('CLAUDE_API_KEY'),
         'deepseek': os.getenv('DEEPSEEK_API_KEY'),
@@ -60,6 +73,7 @@ def get_ai_service():
     user_keys = {}
     if user:
         user_keys = {
+            'openai': user.openai_api_key,
             'gemini': user.gemini_api_key,
             'claude': user.claude_api_key,
             'deepseek': user.deepseek_api_key,
@@ -68,10 +82,48 @@ def get_ai_service():
         }
         user_keys = {k: v for k, v in user_keys.items() if v and not str(v).startswith('your-')}
     
-    # 4. Merge: vault → env → user (later sources override earlier)
-    final_keys = {**vault_keys, **env_keys, **user_keys}
+    # Merge: vault → env → user → headers (later sources override earlier)
+    # 4. Request Headers override (transient UI keys, highest priority overall)
+    header_keys = {}
+    provider_header = request.headers.get('X-AI-Provider')
+    key_header = request.headers.get('X-AI-Key')
     
-    return MultiAIService(final_keys)
+    # NEW: All Keys JSON header for 'auto' mode selection
+    all_keys_header = request.headers.get('X-AI-Keys-JSON')
+    if all_keys_header:
+        try:
+            extra_keys = json.loads(all_keys_header)
+            # Use specific providers as defined in the JSON
+            header_keys.update({k: v for k, v in extra_keys.items() if v})
+        except:
+            pass
+
+    # If a specific provider was targeted in the UI, ensure its key is the absolute override
+    if provider_header and key_header and provider_header != 'roolts':
+        target = provider_header.lower()
+        if target == 'huggingface':
+            header_keys['hf_token'] = key_header
+            header_keys['huggingface'] = key_header
+        else:
+            header_keys[target] = key_header
+
+    final_keys = {**vault_keys, **env_keys, **user_keys, **header_keys}
+    
+    # --- LOGGING FOR DIAGNOSTICS ---
+    sources = []
+    if vault_keys: sources.append(f"vault({list(vault_keys.keys())})")
+    if env_keys: sources.append(f"env({list(env_keys.keys())})")
+    if user_keys: sources.append(f"db({list(user_keys.keys())})")
+    if header_keys: sources.append(f"headers({list(header_keys.keys())})")
+    
+    print(f"[AI] Key resolution: {' -> '.join(sources)}")
+    print(f"[AI] Configured models in MultiAIService start...")
+    
+    service = MultiAIService(final_keys)
+    available = service.get_available_models()
+    print(f"[AI] Final available models: {available}")
+    
+    return service
 
 def get_custom_ai_service(api_key, provider):
     """Get AI service with a specific custom key (BYOK)."""
@@ -97,6 +149,46 @@ def detect_language(code):
                 return lang
     
     return 'plaintext'
+
+
+def scrape_google_images(query: str):
+    """Fetch a relevant image using Wikipedia's open REST API based on the query."""
+    try:
+        # Search for the most relevant Wikipedia article
+        search_url = f"https://en.wikipedia.org/w/api.php"
+        search_params = {
+            "action": "query",
+            "list": "search",
+            "srsearch": query,
+            "format": "json",
+            "srlimit": 1
+        }
+        search_r = requests.get(search_url, params=search_params, timeout=5)
+        search_data = search_r.json()
+        results = search_data.get("query", {}).get("search", [])
+        if not results:
+            return None
+
+        title = results[0]["title"]
+
+        # Fetch the page thumbnail/image for that article
+        image_params = {
+            "action": "query",
+            "titles": title,
+            "prop": "pageimages",
+            "pithumbsize": 600,
+            "format": "json"
+        }
+        image_r = requests.get(search_url, params=image_params, timeout=5)
+        image_data = image_r.json()
+        pages = image_data.get("query", {}).get("pages", {})
+        for page in pages.values():
+            thumbnail = page.get("thumbnail", {})
+            if thumbnail.get("source"):
+                return thumbnail["source"]
+    except Exception as e:
+        print(f"Error fetching Wikipedia image: {e}")
+    return None
 
 
 def generate_mock_explanation(code, language):
@@ -248,10 +340,11 @@ def generate_mock_resources(language):
 
 @ai_bp.route('/explain', methods=['POST'])
 def explain_code():
-    """Generate an AI-powered explanation of code."""
+    """Generate an AI-powered explanation of code with optional error context."""
     data = request.get_json()
     code = data.get('code', '')
     language = data.get('language', '')
+    terminal_error = data.get('error', '')
     
     if not code:
         return jsonify({'error': 'Code is required'}), 400
@@ -265,7 +358,7 @@ def explain_code():
     # Use the specialized explainer service
     try:
         # EXECUTE ASYNC
-        result = run_async(service.explainer.explain_code(code, language))
+        result = run_async(service.explainer.explain_code(code, language, context_query=terminal_error))
         
         if 'error' in result:
              # Fallback to mock if error
@@ -310,6 +403,22 @@ def explain_code():
     })
 
 
+@ai_bp.route('/scan-compiler', methods=['POST'])
+def scan_compiler():
+    """Provides diagnostics about the Roolts execution environment."""
+    service = get_ai_service()
+    try:
+        summary = get_compiler_summary()
+        result = run_async(service.chat(
+            f"Explain the following Roolts execution environment status to the user:\n\n{summary}",
+            model='gemini',
+            system_prompt="You are a system administrator. Explain the available runtimes and system limits clearly."
+        ))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @ai_bp.route('/diagram', methods=['POST'])
 def generate_diagram():
     """Generate a visual diagram from code."""
@@ -349,20 +458,64 @@ def generate_diagram():
 
 @ai_bp.route('/resources', methods=['POST'])
 def suggest_resources():
-    """Suggest learning resources based on code."""
+    """Suggest learning resources based on code with AI support."""
     data = request.get_json()
     code = data.get('code', '')
     language = data.get('language', '')
+    terminal_error = data.get('error', '')
+
+    if not code and not language:
+        return jsonify({'resources': generate_mock_resources('python')})
     
     if not language:
         language = detect_language(code)
-    
-    resources = generate_mock_resources(language)
-    
-    return jsonify({
-        'resources': resources,
-        'language': language
-    })
+
+    service = get_ai_service()
+    try:
+        # Use AI to find 3 relevant documentation links
+        prompt = f"Suggest 3 high-quality documentation or tutorial links for a developer working with {language} on this code:\n\n```{language}\n{code[:8000]}\n```"
+        if terminal_error:
+            prompt += f"\n\nThe user is also seeing this error: {terminal_error}"
+            
+        system_prompt = (
+            "You are a helpful assistant. Provide exactly 3 high-quality learning resources in JSON format. "
+            "Return a JSON object with a 'resources' key containing a list of objects with 'title', 'url', and 'description'. "
+            "Prioritize official docs or reputable blogs like MDN, Real Python, or Baeldung."
+        )
+        
+        result = run_async(service.chat(prompt, model='gemini', system_prompt=system_prompt, hide_thinking=True))
+        
+        # Parse the JSON response
+        try:
+            content = result.get('response', '')
+            # Clean possible markdown formatting
+            if '```json' in content:
+                content = re.search(r'```json\n?(.*?)\n?```', content, re.DOTALL).group(1)
+            elif '```' in content:
+                content = re.search(r'```\n?(.*?)\n?```', content, re.DOTALL).group(1)
+                
+            res_data = json.loads(content)
+            resources = res_data.get('resources', [])
+            if not resources:
+                raise ValueError("No resources in AI response")
+        except Exception:
+            # Fallback to mock on parse error
+            resources = generate_mock_resources(language)
+            
+        return jsonify({
+            'response': f"I've found these **{language.capitalize()}** learning resources for you:",
+            'resources': resources,
+            'language': language,
+            'provider': result.get('provider', 'AI')
+        })
+    except Exception as e:
+        print(f"Resource suggestion failed: {e}")
+        return jsonify({
+            'response': "> [!WARNING]\n> Failed to generate AI resources. Showing standard links.",
+            'resources': generate_mock_resources(language),
+            'language': language,
+            'provider': 'Mock Fallback'
+        })
 
 
 @ai_bp.route('/analyze', methods=['POST'])
@@ -536,13 +689,7 @@ def review_code():
         return jsonify({'error': str(e)}), 500
 
 
-    error = data.get('error', '')
-    return jsonify({
-        'response': result.get('response', ''),
-        'model': result.get('model', 'unknown'),
-        'provider': result.get('provider', 'unknown'),
-        'feature': 'refactor'
-    })
+
 
 def _refactor_prompt(language, code, error):
     prompt = f"Refactor this {language} code:\n\n```{language}\n{code}\n```"
@@ -764,7 +911,7 @@ def chat_with_ai():
 
         # BYOK Support
         api_key = data.get('apiKey')
-        provider = data.get('provider') # 'gemini', 'deepseek', 'openai' (mapped to claude/deepseek in backend for now or we add openai)
+        provider = data.get('provider') or request.headers.get('X-AI-Provider')
 
         if not query:
             return jsonify({'error': 'Query is required'}), 400
@@ -773,60 +920,58 @@ def chat_with_ai():
             language = detect_language(code)
 
         if api_key and provider and not str(api_key).startswith('your-'):
-            # Use the user's provided key if it's not a placeholder
+            # Legacy fallback: Use the user's provided key if it's explicitly in the payload
             service = get_custom_ai_service(api_key, provider)
             target_model = provider
         else:
+            # New flow: get_ai_service will automatically read X-AI-Key
             service = get_ai_service()
-            target_model = 'auto'
+            target_model = provider if provider and provider != 'roolts' else 'auto'
 
         system_prompt = (
-            "You are Roolts AI — an elite full-stack developer, systems architect, and world-class coding mentor.\n\n"
-            "## Core Directives\n"
-            "1. **Code Quality**: All code you write MUST be production-ready, clean, efficient, well-commented, and secure. "
-            "Use modern language features (Python 3.10+, ES2022+, Java 17+). Never use deprecated APIs.\n"
-            "2. **Step-by-Step Reasoning**: Think through problems methodically. For debugging, identify the root cause before suggesting fixes.\n"
-            "3. **Complete Solutions**: When asked to write or fix code, provide the FULL working code — never leave placeholders like '// rest of code here'.\n"
-            "4. **Error Handling**: Always include robust error handling (try/except, try/catch, null checks, input validation).\n"
-            "5. **Best Practices**: Follow SOLID principles, DRY, clean architecture patterns. Suggest design patterns when appropriate.\n"
-            "6. **Performance Awareness**: Mention time/space complexity for algorithms. Suggest optimizations proactively.\n"
-            "7. **Security First**: Flag XSS, SQL injection, CSRF, hardcoded secrets, and other vulnerabilities immediately.\n\n"
-            f"{get_compiler_summary()}\n\n"
-            "## Response Format\n"
-            "- **CRITICAL: NEVER USE MARKDOWN TABLES** (e.g. `| col |`). They do not render correctly. "
-            "Instead, use **bulleted lists** or **fenced code blocks (```text)** for tabular data.\n"
-            "- **Thinking Process**: If you need to reason through a complex problem, wrap your thought process in `<think>` tags before your main response.\n"
-            "- Use markdown with proper language-tagged code blocks (```python, ```javascript, etc.)\n"
-            "- For multi-file changes, clearly label each file\n"
-            "- Use bullet points for lists of suggestions\n"
-            "- Bold key terms and important warnings\n"
-            "- If explaining code line-by-line, use a structured list format:\n"
-            "  - **Line X**: `code` - Explanation\n\n"
-            "## What NOT to Do\n"
-            "- Do NOT provide vague or generic advice — be specific and actionable\n"
-            "- Do NOT apologize excessively. Be direct and helpful.\n\n"
-            "At the end of your response, include a '**Sources:**' section with 1-3 relevant documentation links in the format `[Link Title](URL)` so they are clickable."
+            "You are Roolts Assistant—a thoughtful, calm, and precise communicator. "
+            "Write with an elegant, unhurried rhythm and a natural flow of thought.\n\n"
+            "## 📝 CORE PRINCIPLES\n"
+            "- **Tone**: Composed and deliberate. Address the user as an intelligent peer—never lecture or patronise. "
+            "Avoid all enthusiastic openers (e.g., 'Sure!', 'Absolutely!') and casual fillers.\n"
+            "- **Structure**: Most responses must follow this shape:\n"
+            "  1. A direct, distilled answer in one to four well-formed sentences.\n"
+            "  2. Only when genuinely needed, unfold the reasoning or context in calm, connected paragraphs that allow each idea space to settle.\n"
+            "  3. Close naturally with the single most important takeaway or a logical next question.\n"
+            "- **Formatting**: Leave intentional spaciousness between paragraphs so the text feels airy. "
+            "Use italics for quiet nuance and em-dashes (—) for measured asides. Bold is exceptionally rare.\n"
+            "- **Structural Aids**: Use markdown tables for structured comparisons or data presentation. "
+            "Provide production-ready code blocks when technical implementation is required. "
+            "Ensure these elements are introduced gracefully without breaking the unhurried narrative flow.\n"
+            "- **Constraints**: Do NOT use markdown headings (###) unless the response is long (over 600 words). "
+            "Steer clear of corporate buzzwords, TikTok cadence, and exaggerated enthusiasm markers.\n\n"
+            "## 📊 TECHNICAL PRECISION\n"
+            "When discussing algorithms or technical metrics, embed them naturally into your paragraphs using italics, "
+            "for example: *The time complexity is O(n), while the space required remains O(1).*\n\n"
+            f"{_cached_compiler_summary()}"
         )
 
-        messages = []
+        # Build context-aware query
+        context_prefix = ""
         if code:
-            system_prompt += f"\n\n## User's Active Code ({language}):\n```{language}\n{code}\n```"
-            system_prompt += "\nRefer to this code context when answering. If the user asks to modify it, provide the complete updated version."
-
-        if execution_output:
-            system_prompt += f"\n\n## Program Execution Output (Compiler Screen):\n```\n{execution_output}\n```"
-            system_prompt += "\nThis is the current output from the program execution. Use it to diagnose errors or confirm behavior."
-    
-        if history:
-             for msg in history:
-                 role = msg.get('role', 'user')
-                 messages.append({'role': role, 'content': msg.get('content', '')})
+            context_prefix += f"[CONTEXT: Active File ({language})]\n```{language}\n{code}\n```\n\n"
         
-        messages.append({'role': 'user', 'content': query})
+        if execution_output:
+            context_prefix += f"[CONTEXT: Execution Output]\n```\n{execution_output}\n```\n\n"
+
+        messages = []
+        if history:
+            for msg in history:
+                role = msg.get('role', 'user')
+                messages.append({'role': role, 'content': msg.get('content', '')})
+        
+        # Ensure the AI "reads the code" by prepending context to the query
+        final_query = f"{context_prefix}User Query: {query}"
+        messages.append({'role': 'user', 'content': final_query})
         
         # EXECUTE ASYNC
         result = run_async(service.chat(
-            prompt=query, 
+            prompt=final_query, 
             model=target_model, 
             system_prompt=system_prompt,
             messages=messages,
@@ -849,11 +994,71 @@ def chat_with_ai():
             'provider': result.get('provider', 'System')
         })
     
+    # Try fetching a relevant image if the query asks for concepts, algorithms, etc.
+    image_url = None
+    if len(query) > 3 and len(query) < 200:
+        # Avoid long blocks of code
+        image_url = scrape_google_images(query + " diagram concept")
+    
     return jsonify({
         'response': result.get('response', ''),
+        'reasoning': result.get('reasoning', ''),
         'model': result.get('model', 'unknown'),
-        'provider': result.get('provider', 'unknown')
+        'provider': result.get('provider', 'unknown'),
+        'image': image_url
     })
+
+@ai_bp.route('/history', methods=['GET'])
+@require_auth
+def get_chat_history():
+    """Get chat history for the current user."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    history = ChatHistory.query.filter_by(user_id=user.id).order_by(ChatHistory.created_at.asc()).all()
+    return jsonify([h.to_dict() for h in history])
+
+@ai_bp.route('/history', methods=['POST'])
+@require_auth
+def save_chat_message():
+    """Save a new chat message to history."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.get_json()
+    role = data.get('role')
+    content = data.get('content')
+    reasoning = data.get('reasoning')
+    
+    if not role or not content:
+        return jsonify({'error': 'Role and content are required'}), 400
+        
+    message = ChatHistory(
+        user_id=user.id,
+        role=role,
+        content=content,
+        reasoning=reasoning
+    )
+    
+    db.session.add(message)
+    db.session.commit()
+    
+    return jsonify(message.to_dict()), 201
+
+@ai_bp.route('/history', methods=['DELETE'])
+@require_auth
+def clear_chat_history():
+    """Clear all chat history for the current user."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    ChatHistory.query.filter_by(user_id=user.id).delete()
+    db.session.commit()
+    
+    return jsonify({'message': 'Chat history cleared'})
 
 
 @ai_bp.route('/code-champ', methods=['POST'])
@@ -898,7 +1103,8 @@ def code_champ_analysis():
 
         # 2. Unified CodeChamp Analysis
         # Use the specialized service within MultiAIService
-        result = run_async(service.code_champ.analyze_code(code, language))
+        tone = data.get('tone', 'standard')
+        result = run_async(service.code_champ.analyze_code(code, language, tone=tone))
         
         if 'error' in result:
              return jsonify({
@@ -915,6 +1121,7 @@ def code_champ_analysis():
             'timeComplexity': result.get('time_complexity', 'O(?)'),
             'spaceComplexity': result.get('space_complexity', 'O(?)'),
             'betterThan': result.get('better_than', '0%'),
+            'detectedProblem': result.get('detected_problem', ''),
             'summary': result.get('summary', ''),
             'recommendations': result.get('recommendations', []),
             'bugs': result.get('bugs', []),
@@ -944,6 +1151,188 @@ def code_champ_analysis():
             'optimalSolution': {'code': code, 'explanation': f"System Error: {str(e)}", 'language': language},
             'provider': 'System'
         }), 500
+
+
+@ai_bp.route('/leetcode-testcases', methods=['POST'])
+def leetcode_testcases():
+    """
+    AI-powered: Identify the LeetCode problem from user code and generate test cases.
+    Returns: { problem_name, problem_url, test_cases: [{input, expected}] }
+    """
+    try:
+        data = request.json
+        code = data.get('code', '')
+        language = data.get('language', 'python')
+
+        if not code or len(code.strip()) < 20:
+            return jsonify({'error': 'Code too short to identify problem'}), 400
+
+        service = get_ai_service()
+
+        system_prompt = (
+            "You are a LeetCode expert. Given the user's code, identify the LeetCode problem "
+            "and generate high-accuracy test cases with correct expected outputs.\n\n"
+            "CRITICAL RULES:\n"
+            "1. IDENTIFY THE PROBLEM: Look at function names, logic patterns, and constraints.\n"
+            "2. VERIFY EXPECTED OUTPUTS: Double-check the 'expected' field. It must be 100% correct "
+            "based on the problem identified. Hallucinating wrong expected outputs is a failure.\n"
+            "3. FORMAT: 'input' must be comma-separated Python expressions for each argument.\n"
+            "   - For ListNode parameters: use a plain list like [1,2,3,4] (the harness auto-converts).\n"
+            "   - For TreeNode parameters: use a level-order list like [1,2,3,None,None,4,5].\n"
+            "   - For arrays/strings/ints: use normal Python literals.\n"
+            "   'expected' must be a single Python expression (e.g., True, [0,1], 3, 'abc').\n"
+            "4. SCOPE: Generate 3-5 test cases: basic, empty/minimum input, edge cases.\n"
+            "5. Return ONLY valid JSON — no markdown, no extra text.\n\n"
+            "JSON template:\n"
+            "{"
+            '  "problem_name": "Two Sum", "problem_url": "https://leetcode.com/problems/two-sum/", '
+            '  "test_cases": [{"input": "[2,7,11,15], 9", "expected": "[0,1]"}]'
+            "}"
+        )
+
+        user_prompt = f"Identify the LeetCode problem and generate test cases for this {language} code:\n\n```{language}\n{code}\n```"
+
+        result = run_async(service.chat(user_prompt, model='auto', system_prompt=system_prompt, hide_thinking=True))
+
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 500
+
+        content = result.get('response', '') or result.get('content', '')
+        print(f"[LeetCode Testcases] Raw AI response length: {len(content)}")
+        print(f"[LeetCode Testcases] Raw AI response (first 500 chars): {content[:500]}")
+
+        # Parse JSON using multiple strategies (same as code_champ)
+        import re
+        content_clean = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+        parsed = None
+
+        # Strategy A: Direct parse
+        try:
+            parsed = json.loads(content_clean)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Strategy B: Markdown fence
+        if parsed is None:
+            fence_match = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', content_clean)
+            if fence_match:
+                try:
+                    parsed = json.loads(fence_match.group(1).strip())
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        # Strategy C: Brace matching
+        if parsed is None:
+            brace_start = content_clean.find('{')
+            if brace_start != -1:
+                depth = 0
+                brace_end = -1
+                for idx in range(brace_start, len(content_clean)):
+                    if content_clean[idx] == '{':
+                        depth += 1
+                    elif content_clean[idx] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            brace_end = idx + 1
+                            break
+                if brace_end > brace_start:
+                    raw = content_clean[brace_start:brace_end]
+                    try:
+                        parsed = json.loads(raw)
+                    except (json.JSONDecodeError, ValueError):
+                        raw = raw.replace("'", '"')
+                        raw = re.sub(r',\s*([}\]])', r'\1', raw)
+                        try:
+                            parsed = json.loads(raw)
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+
+        # Strategy D: Try to find multiple JSON objects (AI sometimes returns them line-by-line)
+        if parsed is None:
+            json_objects = re.findall(r'\{[^{}]*\}', content_clean)
+            if json_objects:
+                test_cases_from_objects = []
+                for obj_str in json_objects:
+                    try:
+                        obj = json.loads(obj_str)
+                        if 'input' in obj or 'expected' in obj:
+                            test_cases_from_objects.append(obj)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                if test_cases_from_objects:
+                    parsed = {'test_cases': test_cases_from_objects, 'problem_name': 'Detected Problem'}
+
+        # Try to find test_cases in various response formats
+        test_cases_found = []
+        problem_name = 'Unknown Problem'
+        problem_url = ''
+
+        if parsed and isinstance(parsed, dict):
+            problem_name = parsed.get('problem_name', parsed.get('problemName', 'Unknown Problem'))
+            problem_url = parsed.get('problem_url', parsed.get('problemUrl', ''))
+
+            # Look for test_cases under various key names
+            for key in ['test_cases', 'testCases', 'tests', 'examples', 'testcases', 'test_case']:
+                if key in parsed and isinstance(parsed[key], list):
+                    test_cases_found = parsed[key]
+                    break
+
+            # If still not found, look for any list of dicts with input/expected
+            if not test_cases_found:
+                for val in parsed.values():
+                    if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
+                        if 'input' in val[0] or 'expected' in val[0] or 'output' in val[0]:
+                            test_cases_found = val
+                            break
+
+        # Normalize test case format
+        normalized = []
+        for tc in test_cases_found:
+            if isinstance(tc, dict):
+                inp = tc.get('input', tc.get('args', tc.get('arguments', '')))
+                exp = tc.get('expected', tc.get('output', tc.get('result', tc.get('answer', ''))))
+                # Convert non-string values to string
+                if not isinstance(inp, str):
+                    inp = json.dumps(inp) if inp is not None else ''
+                if not isinstance(exp, str):
+                    exp = json.dumps(exp) if exp is not None else ''
+                if inp or exp:  # Only add if at least one field is present
+                    normalized.append({'input': inp, 'expected': exp})
+
+        # If parsing completely failed, try to extract problem name from text and provide empty test cases
+        if not normalized:
+            print(f"[LeetCode Testcases] WARNING: Could not parse test cases from AI response")
+            # Try to extract a problem name from the raw text
+            name_match = re.search(r'(?:problem|question|leetcode)\s*(?:is|:)?\s*["\']?([^"\'.\n]+)', content_clean, re.IGNORECASE)
+            if name_match:
+                problem_name = name_match.group(1).strip()
+            
+            # Return placeholder test cases that user can fill in
+            normalized = [
+                {'input': '', 'expected': ''},
+                {'input': '', 'expected': ''}
+            ]
+            return jsonify({
+                'problem_name': problem_name,
+                'problem_url': problem_url,
+                'test_cases': normalized,
+                'provider': result.get('provider', 'AI'),
+                'warning': 'AI response could not be fully parsed. Please fill in the test cases manually.'
+            })
+
+        return jsonify({
+            'problem_name': problem_name,
+            'problem_url': problem_url,
+            'test_cases': normalized,
+            'provider': result.get('provider', 'AI')
+        })
+
+    except Exception as e:
+        print(f"LeetCode testcases error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════

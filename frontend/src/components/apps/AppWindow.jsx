@@ -112,36 +112,43 @@ const AppWindow = ({ id, title, icon, onClose, children, zIndex = 10, initialSiz
                 onMouseDown={handleMouseDown}
                 style={{
                     height: '40px',
-                    backgroundColor: 'var(--bg-secondary)',
-                    borderBottom: '1px solid var(--border-color)',
+                    backgroundColor: 'rgba(30, 30, 30, 0.95)',
+                    backdropFilter: 'blur(10px)',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0 10px',
+                    padding: '0 16px',
                     cursor: isMaximized ? 'default' : 'grab',
-                    userSelect: 'none'
+                    userSelect: 'none',
+                    position: 'relative'
                 }}
             >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {icon}
-                    <span style={{ fontSize: '13px', fontWeight: 500 }}>{title}</span>
-                </div>
-
-                <div className="window-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div
-                        onClick={toggleMaximize}
-                        style={{ cursor: 'pointer', padding: '4px', borderRadius: '4px' }}
-                        className="hover-bg"
-                    >
-                        {isMaximized ? <FiMinus size={14} /> : <FiSquare size={12} />}
-                    </div>
+                {/* Traffic Light Controls */}
+                <div className="window-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', zIndex: 10 }}>
                     <div
                         onClick={onClose}
-                        style={{ cursor: 'pointer', padding: '4px', borderRadius: '4px' }}
-                        className="hover-bg-danger"
-                    >
-                        <FiX size={14} />
-                    </div>
+                        style={{
+                            width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ff5f56',
+                            cursor: 'pointer', boxShadow: '0 0 0 1px rgba(0,0,0,0.1) inset'
+                        }}
+                        className="mac-btn"
+                        title="Close"
+                    />
+                    <div
+                        onClick={toggleMaximize}
+                        style={{
+                            width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#28c840',
+                            cursor: 'pointer', boxShadow: '0 0 0 1px rgba(0,0,0,0.1) inset'
+                        }}
+                        className="mac-btn"
+                        title={isMaximized ? "Restore" : "Maximize"}
+                    />
+                </div>
+
+                {/* Centered Title */}
+                <div style={{ position: 'absolute', left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                    {icon && <span style={{ marginRight: '8px', display: 'flex', alignItems: 'center', opacity: 0.9, color: 'var(--text-primary)' }}>{icon}</span>}
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>{title}</span>
                 </div>
             </div>
 
@@ -167,8 +174,7 @@ const AppWindow = ({ id, title, icon, onClose, children, zIndex = 10, initialSiz
             )}
 
             <style>{`
-                .hover-bg:hover { background-color: rgba(255,255,255,0.1); }
-                .hover-bg-danger:hover { background-color: var(--color-danger); color: white; }
+                .mac-btn:hover { filter: brightness(0.8); }
             `}</style>
         </div>,
         document.body

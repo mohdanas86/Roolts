@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiTerminal, FiClock, FiTrash2, FiX, FiCheckCircle, FiAlertCircle, FiSquare } from 'react-icons/fi';
-import { useExecutionStore } from '../store';
+import { useExecutionStore, useUIStore } from '../store';
 import { socketService } from '../services/socketService';
 import { executorService } from '../services/executorService';
+import GUIPreviewPanel from './GUIPreviewPanel';
 
 function OutputPanel() {
     const {
@@ -11,8 +12,9 @@ function OutputPanel() {
         appendOutput, setExecuting, setError,
         input, setInput, // Use global input state
         isInteractive, setIsInteractive, // Use global interactive state
-        isSplitMode
+        isSplitMode, activeGui, setActiveGui
     } = useExecutionStore();
+    const { setAppPreviewUrl, setRightPanelTab, rightPanelOpen, toggleRightPanel } = useUIStore();
     const [showHistory, setShowHistory] = useState(false);
     // Removed local input/interactive state to persist across tab switches
     const outputContentRef = useRef(null);
@@ -77,16 +79,36 @@ function OutputPanel() {
             if (stopButtonTimer) clearTimeout(stopButtonTimer);
         };
 
+        const handleAppReady = (data) => {
+            const { port } = data;
+            const hostname = window.location.hostname; // Should use the deployment domain in production
+            const protocol = window.location.protocol;
+
+            // Build the VNC preview URL dynamically based on where we are hosted
+            const appUrl = `${protocol}//${hostname}:${port}/vnc.html?resize=remote&autoconnect=true`;
+
+            console.log(`[OutputPanel] Application ready at ${appUrl}`);
+            setAppPreviewUrl(appUrl);
+
+            // Open the WebPreview pane
+            if (!useUIStore.getState().rightPanelOpen) {
+                toggleRightPanel();
+            }
+            setRightPanelTab('preview');
+        };
+
         socketService.on('exec:data', handleExecData);
         socketService.on('exec:started', handleExecStarted);
         socketService.on('exec:finished', handleExecFinished);
         socketService.on('exec:error', handleExecError);
+        socketService.on('exec:app-ready', handleAppReady);
 
         return () => {
             socketService.off('exec:data', handleExecData);
             socketService.off('exec:started', handleExecStarted);
             socketService.off('exec:finished', handleExecFinished);
             socketService.off('exec:error', handleExecError);
+            socketService.off('exec:app-ready', handleAppReady);
             if (flushFrameId) cancelAnimationFrame(flushFrameId);
         };
     }, []);
@@ -96,7 +118,7 @@ function OutputPanel() {
         if (outputContentRef.current) {
             outputContentRef.current.scrollTop = outputContentRef.current.scrollHeight;
         }
-    }, [output]);
+    }, [output, activeGui]);
 
     const handleInputSubmit = (e) => {
         e.preventDefault();
@@ -183,7 +205,7 @@ function OutputPanel() {
                         )}
                     </div>
                 ) : (
-                    <div className="output-panel__content" ref={outputContentRef} style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+                    <div className="output-panel__content" ref={outputContentRef} style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column' }}>
                         {isExecuting && !output && (
                             <div className="output-panel__loading">
                                 <span className="spinner" /> Initializing execution...
@@ -195,7 +217,14 @@ function OutputPanel() {
                         {output && (
                             <pre className="output-panel__result" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{output}</pre>
                         )}
-                        {!isExecuting && !output && !error && (
+
+                        {activeGui && (
+                            <div style={{ marginTop: '16px', flexShrink: 0 }}>
+                                <GUIPreviewPanel activeGui={activeGui} onClose={() => setActiveGui(null)} />
+                            </div>
+                        )}
+
+                        {!isExecuting && !output && !error && !activeGui && (
                             <div className="output-panel__empty">
                                 <FiTerminal size={32} style={{ opacity: 0.3, marginBottom: '8px' }} />
                                 <p>Click "Run" to execute your code</p>
@@ -226,8 +255,68 @@ function OutputPanel() {
                     </form>
                 )}
             </div>
+
+            <style>{`
+                .gui-integrated-preview {
+                    border-radius: 12px;
+                    overflow: hidden;
+                    border: 1px solid var(--border-primary);
+                    background: var(--bg-secondary);
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+                    display: flex;
+                    flex-direction: column;
+                    width: 100%;
+                    animation: slideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+                }
+                @keyframes slideUp {
+                    from { opacity: 0; transform: translateY(20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                .gui-integrated-header {
+                    padding: 8px 16px;
+                    background: var(--bg-tertiary);
+                    border-bottom: 1px solid var(--border-primary);
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .gui-status-dot {
+                    width: 7px;
+                    height: 7px;
+                    background: #10b981;
+                    border-radius: 50%;
+                    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+                }
+                .gui-label {
+                    font-size: 10px;
+                    font-weight: 800;
+                    letter-spacing: 0.1em;
+                    color: var(--text-muted);
+                }
+                .gui-close-btn {
+                    background: transparent;
+                    border: none;
+                    color: var(--text-muted);
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 4px;
+                    border-radius: 4px;
+                    transition: all 0.2s;
+                }
+                .gui-close-btn:hover {
+                    background: rgba(255,255,255,0.05);
+                    color: var(--text-primary);
+                }
+                .gui-integrated-content {
+                    height: 400px;
+                    background: #fff;
+                }
+            `}</style>
         </div>
     );
 }
 
 export default OutputPanel;
+

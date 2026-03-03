@@ -5,6 +5,7 @@
 
 import { pythonValidator } from './validators/pythonValidator.js';
 import { genericValidator } from './validators/genericValidator.js';
+import { useSettingsStore } from '../store';
 
 class RealtimeValidator {
     constructor() {
@@ -17,6 +18,7 @@ class RealtimeValidator {
         this.currentLanguage = null;
         this.abortController = null;
         this.validatorDisposed = false;
+        this.changeListenerDisposable = null;
     }
 
     /**
@@ -29,10 +31,16 @@ class RealtimeValidator {
         this.editor = editor;
         this.validatorDisposed = false;
 
+        // Remove previously attached listener if it exists
+        if (this.changeListenerDisposable) {
+            this.changeListenerDisposable.dispose();
+            this.changeListenerDisposable = null;
+        }
+
         // Set up content change listener
         const model = editor.getModel();
         if (model) {
-            model.onDidChangeContent(() => {
+            this.changeListenerDisposable = model.onDidChangeContent(() => {
                 this.scheduleValidation();
             });
         }
@@ -82,6 +90,12 @@ class RealtimeValidator {
         const model = this.editor.getModel();
         if (!model) return;
 
+        const { features } = useSettingsStore.getState();
+        if (!features?.validation) {
+            this.monaco.editor.setModelMarkers(model, 'realtime', []);
+            return;
+        }
+
         this.isValidating = true;
         this.pendingValidation = false;
         this.abortController = new AbortController();
@@ -125,18 +139,18 @@ class RealtimeValidator {
      */
     async validate(code, language, fileName) {
         const markers = [];
-        
+
         try {
             // Route to appropriate validator based on language
             const lang = language.toLowerCase();
-            
+
             switch (lang) {
                 case 'python':
                     // Use Python validator
                     const pythonResults = pythonValidator.validate(code);
                     markers.push(...pythonResults);
                     break;
-                    
+
                 case 'javascript':
                 case 'typescript':
                 case 'javascriptreact':
@@ -144,13 +158,13 @@ class RealtimeValidator {
                     // Monaco has built-in validation for these
                     // We'll integrate Monaco diagnostics separately
                     break;
-                    
+
                 case 'html':
                 case 'css':
                 case 'json':
                     // Monaco has built-in validation
                     break;
-                    
+
                 case 'java':
                 case 'c':
                 case 'cpp':
@@ -161,11 +175,11 @@ class RealtimeValidator {
                     markers.push(...genericResults);
                     break;
             }
-            
+
         } catch (error) {
             console.error('[RealtimeValidator] Validation error:', error);
         }
-        
+
         return markers;
     }
 
@@ -201,6 +215,12 @@ class RealtimeValidator {
             if (model) {
                 this.monaco.editor.setModelMarkers(model, 'realtime', []);
             }
+        }
+
+        // Clean up editor listener
+        if (this.changeListenerDisposable) {
+            this.changeListenerDisposable.dispose();
+            this.changeListenerDisposable = null;
         }
 
         this.monaco = null;

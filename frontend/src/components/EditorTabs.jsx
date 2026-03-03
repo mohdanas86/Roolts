@@ -1,7 +1,9 @@
-import React from 'react';
-import { FiTerminal, FiX, FiTrash2, FiEdit3, FiRotateCcw, FiEdit2, FiCheckCircle, FiLayout, FiMonitor, FiColumns, FiSidebar } from 'react-icons/fi';
+import React, { useCallback } from 'react';
+import { FiTerminal, FiX, FiTrash2, FiEdit3, FiRotateCcw, FiEdit2, FiCheckCircle, FiLayout, FiMonitor, FiColumns, FiSidebar, FiPlay } from 'react-icons/fi';
 import { LuEraser } from 'react-icons/lu';
 import { useFileStore, useExecutionStore, useSettingsStore, useUIStore } from '../store';
+import { executorService } from '../services/executorService';
+import socketService from '../services/socketService';
 import {
     DndContext,
     closestCenter,
@@ -17,14 +19,27 @@ import {
 import EditorTab from './EditorTab';
 
 function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScribbleTool, scribbleColor, setScribbleColor, onUndo, onClear }) {
-    const { files, openFiles, activeFileId, setActiveFile, closeFile, closeFiles } = useFileStore();
-    const { showOutput, setShowOutput, isSplitMode, setSplitMode } = useExecutionStore();
-    const { features } = useSettingsStore();
-    const { addNotification, sidebarOpen, toggleSidebar } = useUIStore();
+    const openFilesData = useFileStore(
+        state => state.openFiles.map(id => {
+            const f = state.files.find(file => file.id === id);
+            return f ? { id: f.id, name: f.name, language: f.language, modified: f.modified, content: f.content } : null;
+        }).filter(Boolean),
+        (a, b) => a.length === b.length && a.every((f, i) => f.id === b[i].id && f.name === b[i].name && f.modified === b[i].modified)
+    );
 
-    const openFilesData = (Array.isArray(files) && Array.isArray(openFiles))
-        ? openFiles.map((id) => files.find((f) => f.id === id)).filter(Boolean)
-        : [];
+    const activeFileId = useFileStore(state => state.activeFileId);
+    const openFiles = useFileStore(state => state.openFiles, (a, b) => a.length === b.length && a.every((id, i) => id === b[i]));
+    const setActiveFile = useFileStore(state => state.setActiveFile);
+    const closeFile = useFileStore(state => state.closeFile);
+    const closeFiles = useFileStore(state => state.closeFiles);
+
+    const showOutput = useExecutionStore(state => state.showOutput);
+    const setShowOutput = useExecutionStore(state => state.setShowOutput);
+    const isSplitMode = useExecutionStore(state => state.isSplitMode);
+    const setSplitMode = useExecutionStore(state => state.setSplitMode);
+
+    const features = useSettingsStore(state => state.features);
+    const addNotification = useUIStore(state => state.addNotification);
 
     const [contextMenu, setContextMenu] = React.useState(null);
 
@@ -94,37 +109,99 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
         }
     };
 
+
+    const handleRunCode = useCallback(async () => {
+        const activeFile = useFileStore.getState().files.find(f => f.id === activeFileId);
+        if (!activeFile) return addNotification({ type: 'error', message: 'No file selected' });
+
+        const isWeb = activeFile.language === 'html' ||
+            (activeFile.language === 'javascript' && (activeFile.content.includes('import React') || activeFile.name.endsWith('.jsx')));
+
+        // If it's a basic frontend react/html file, use the old static WebPreview
+        if (isWeb && !activeFile.content.includes('express') && !activeFile.content.includes('http')) {
+            if (!useUIStore.getState().rightPanelOpen) useUIStore.getState().toggleRightPanel();
+            useUIStore.getState().setRightPanelTab('preview');
+            return;
+        }
+
+        // Prevent rapid clicks
+        if (useExecutionStore.getState().isExecuting) {
+            executorService.stopExecution();
+        }
+
+        useExecutionStore.getState().setShowOutput(true);
+        useExecutionStore.getState().setExecuting(true);
+        useExecutionStore.getState().setOutput('');
+        useExecutionStore.getState().setError(null);
+
+        // GUI/Web Apps (Flask, Node Server, Pygame, Tkinter, etc)
+        // For standard languages, we'll use the new startApp to spawn a VNC container
+        const isApp = ['python', 'javascript', 'js'].includes(activeFile.language);
+
+        setTimeout(() => {
+            if (isApp) {
+                executorService.startApp(activeFile.content, activeFile.language);
+            } else {
+                executorService.executeInteractive(activeFile.content, activeFile.language);
+            }
+        }, 200);
+    }, [activeFileId, addNotification]);
+
+    React.useEffect(() => {
+        const handleGlobalRun = () => handleRunCode();
+        window.addEventListener('run-program', handleGlobalRun);
+
+        // Auto-open CodeChamp when GUI mode is detected by backend
+        const handleGuiMode = () => {
+            const { rightPanelOpen, toggleRightPanel, setRightPanelTab } = useUIStore.getState();
+            if (!rightPanelOpen) {
+                toggleRightPanel();
+            }
+            setRightPanelTab('codechamp');
+        };
+        socketService.on('exec:gui-mode', handleGuiMode);
+
+        return () => {
+            window.removeEventListener('run-program', handleGlobalRun);
+            socketService.off('exec:gui-mode', handleGuiMode);
+        };
+    }, [handleRunCode]);
+
+    const isExecuting = useExecutionStore(state => state.isExecuting);
+
     return (
         <div className="editor-tabs">
 
-            <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-            >
-                <SortableContext
-                    items={openFiles}
-                    strategy={horizontalListSortingStrategy}
+            <div style={{ flex: 1, display: 'flex', overflowX: 'auto', overflowY: 'hidden', minWidth: 0, paddingRight: '8px', scrollbarWidth: 'none' }} className="hide-scrollbar">
+                <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
                 >
-                    {openFilesData.map((file) => (
-                        <EditorTab
-                            key={file.id}
-                            file={file}
-                            activeFileId={activeFileId}
-                            showOutput={showOutput}
-                            setActiveFile={(id) => {
-                                setActiveFile(id);
-                                if (!isSplitMode) {
-                                    setShowOutput(false);
-                                }
-                            }}
-                            setShowOutput={setShowOutput}
-                            closeFile={closeFile}
-                            handleContextMenu={handleContextMenu}
-                        />
-                    ))}
-                </SortableContext>
-            </DndContext>
+                    <SortableContext
+                        items={openFiles}
+                        strategy={horizontalListSortingStrategy}
+                    >
+                        {openFilesData.map((file) => (
+                            <EditorTab
+                                key={file.id}
+                                file={file}
+                                activeFileId={activeFileId}
+                                showOutput={showOutput}
+                                setActiveFile={(id) => {
+                                    setActiveFile(id);
+                                    if (!isSplitMode) {
+                                        setShowOutput(false);
+                                    }
+                                }}
+                                setShowOutput={setShowOutput}
+                                closeFile={closeFile}
+                                handleContextMenu={handleContextMenu}
+                            />
+                        ))}
+                    </SortableContext>
+                </DndContext>
+            </div>
 
 
             {contextMenu && (
@@ -207,6 +284,37 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
                     </button>
                 </div>
             )}
+
+            {/* Run Button */}
+            <button
+                className="btn btn--success"
+                onClick={handleRunCode}
+                disabled={isExecuting}
+                style={{
+                    marginRight: '8px',
+                    padding: '4px 16px',
+                    fontSize: '12px',
+                    height: '32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    backgroundColor: 'var(--success)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 'var(--radius-md)',
+                    cursor: isExecuting ? 'not-allowed' : 'pointer',
+                    opacity: isExecuting ? 0.7 : 1,
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 4px 10px rgba(63, 185, 80, 0.3)',
+                    fontWeight: 600
+                }}
+                title="Run Code (Ctrl+Enter)"
+            >
+                {isExecuting ? <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} /> : <FiPlay size={12} fill="currentColor" />}
+                <span>Run</span>
+            </button>
+
             {/* Output Tab - Acts like a program tab */}
             <button
                 className={`editor-tab ${showOutput && !isSplitMode ? 'editor-tab--active' : ''}`}
@@ -214,14 +322,14 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
                     setShowOutput(true);
                     setSplitMode(false);
                 }}
-                style={{ borderLeft: '1px solid var(--border-primary)', minWidth: '100px' }}
+                style={{ marginLeft: 'auto', marginRight: '8px' }}
                 title="Output Terminal"
             >
-                <FiTerminal size={14} style={{ color: 'var(--accent-primary)' }} />
+                <FiTerminal size={14} style={{ color: showOutput && !isSplitMode ? 'white' : 'var(--accent-primary)' }} />
                 <span>Output</span>
             </button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', paddingRight: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px', flexShrink: 0 }}>
                 <button
                     className={`btn btn--icon ${isSplitMode ? 'btn--active' : ''}`}
                     onClick={() => {

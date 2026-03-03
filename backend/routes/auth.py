@@ -38,6 +38,11 @@ EVERNOTE_CONSUMER_KEY = os.getenv('EVERNOTE_CONSUMER_KEY', '')
 EVERNOTE_CONSUMER_SECRET = os.getenv('EVERNOTE_CONSUMER_SECRET', '')
 EVERNOTE_REDIRECT_URI = os.getenv('EVERNOTE_REDIRECT_URI', 'http://127.0.0.1:3000/callback/evernote')
 
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
+GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', 'http://127.0.0.1:3000/callback/google/index.html')
+
 
 def create_jwt_token(user_id):
     """Create a JWT token for a user."""
@@ -188,6 +193,8 @@ def update_api_keys(user):
     data = request.get_json()
     
     # Note: In production, encrypt these keys!
+    if 'openai_api_key' in data:
+        user.openai_api_key = data['openai_api_key']
     if 'gemini_api_key' in data:
         user.gemini_api_key = data['gemini_api_key']
     if 'claude_api_key' in data:
@@ -207,6 +214,50 @@ def update_api_keys(user):
         'message': 'API keys updated',
         'user': user.to_dict()
     })
+
+# ============ Admin / Vault Routes ============
+
+# Default master password
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin')
+
+@auth_bp.route('/admin/verify', methods=['POST'])
+def verify_admin():
+    """Verify the admin master password."""
+    data = request.get_json()
+    password = data.get('password', '')
+    
+    if password == ADMIN_PASSWORD:
+        return jsonify({'success': True, 'message': 'Admin verified'})
+    
+    return jsonify({'success': False, 'error': 'Invalid master password'}), 401
+
+@auth_bp.route('/admin/keys', methods=['GET', 'POST'])
+def manage_admin_keys():
+    """Manage global system API keys stored in the Vault."""
+    from services.vault import vault
+    
+    # Simple password check in header for admin routes
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header != f"Bearer {ADMIN_PASSWORD}":
+        return jsonify({'error': 'Unauthorized admin access'}), 401
+        
+    if request.method == 'GET':
+        # Don't return the actual keys, just which ones are set
+        sealed = vault.list_sealed()
+        keys_status = {
+            'pollinations': 'pollinations' in sealed
+        }
+        return jsonify({'keys': keys_status})
+        
+    elif request.method == 'POST':
+        data = request.get_json()
+        if 'pollinations' in data:
+            if data['pollinations']:
+                vault.seal('pollinations', data['pollinations'])
+            else:
+                vault.remove('pollinations')
+                
+        return jsonify({'message': 'Admin keys updated successfully'})
 
 
 # ============ Social OAuth - Twitter ============
@@ -599,6 +650,124 @@ def evernote_callback():
     
     return jsonify({
         'message': 'Evernote connected successfully'
+    })
+
+
+# ============ Social OAuth - Google ============
+
+@auth_bp.route('/google/connect', methods=['GET'])
+def google_connect():
+    """Initiate Google OAuth 2.0 flow."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        pass # Allow it to generate the URL anyway to show the Google config error to the user
+        
+    # Build state parameter for CSRF
+    state = "google_auth_state"
+    
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={GOOGLE_CLIENT_ID}&"
+        f"response_type=code&"
+        f"redirect_uri={GOOGLE_REDIRECT_URI}&"
+        f"scope=openid%20email%20profile&"
+        f"state={state}&"
+        f"access_type=offline&"
+        f"prompt=consent"
+    )
+    
+    return jsonify({'auth_url': auth_url})
+
+
+@auth_bp.route('/google/callback', methods=['POST'])
+def google_callback():
+    """Handle Google OAuth callback."""
+    data = request.get_json()
+    code = data.get('code')
+    
+    if not code:
+        return jsonify({'error': 'Code required'}), 400
+        
+    # Removed Development Mock
+        
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        return jsonify({'error': 'Google OAuth not configured on server'}), 500
+    
+    # Exchange code for tokens
+    token_response = requests.post(
+        'https://oauth2.googleapis.com/token',
+        data={
+            'code': code,
+            'client_id': GOOGLE_CLIENT_ID,
+            'client_secret': GOOGLE_CLIENT_SECRET,
+            'redirect_uri': GOOGLE_REDIRECT_URI,
+            'grant_type': 'authorization_code'
+        }
+    )
+    
+    if token_response.status_code != 200:
+        return jsonify({'error': 'Failed to exchange code', 'details': token_response.text}), 400
+    
+    tokens = token_response.json()
+    
+    # Get user info from Google
+    user_response = requests.get(
+        'https://www.googleapis.com/oauth2/v3/userinfo',
+        headers={'Authorization': f"Bearer {tokens['access_token']}"}
+    )
+    
+    google_user = user_response.json()
+    email = google_user.get('email')
+    
+    if not email:
+        return jsonify({'error': 'Email not provided by Google'}), 400
+        
+    user = User.query.filter_by(email=email).first()
+    
+    if not user:
+        # Auto-register user from Google
+        user = User(
+            email=email,
+            name=google_user.get('name', 'Google User'),
+            profile_image=google_user.get('picture', '')
+        )
+        user.set_password('google_sso_no_password_set') 
+        db.session.add(user)
+        db.session.commit()
+    elif not user.profile_image and google_user.get('picture'):
+        # Update profile image if missing
+        user.profile_image = google_user.get('picture')
+        
+    # Save token
+    existing = SocialToken.query.filter_by(user_id=user.id, platform='google').first()
+    
+    if existing:
+        existing.access_token = tokens['access_token']
+        if tokens.get('refresh_token'):
+            existing.refresh_token = tokens.get('refresh_token')
+        existing.expires_at = datetime.utcnow() + timedelta(seconds=tokens.get('expires_in', 3600))
+        existing.platform_user_id = google_user.get('sub')
+        existing.platform_username = email
+    else:
+        social_token = SocialToken(
+            user_id=user.id,
+            platform='google',
+            access_token=tokens['access_token'],
+            refresh_token=tokens.get('refresh_token'),
+            expires_at=datetime.utcnow() + timedelta(seconds=tokens.get('expires_in', 3600)),
+            platform_user_id=google_user.get('sub'),
+            platform_username=email
+        )
+        db.session.add(social_token)
+    
+    db.session.commit()
+    
+    # Generate app token
+    app_token = create_jwt_token(user.id)
+    
+    return jsonify({
+        'message': 'Google connected successfully',
+        'token': app_token,
+        'user': user.to_dict()
     })
 
 

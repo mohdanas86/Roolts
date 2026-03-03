@@ -1,8 +1,15 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      'events': path.resolve(__dirname, 'src/utils/events-polyfill.js'),
+      'util': path.resolve(__dirname, 'src/utils/util-polyfill.js'),
+    }
+  },
   server: {
     port: 3000,
     host: '0.0.0.0',
@@ -39,7 +46,10 @@ export default defineConfig({
   optimizeDeps: {
     include: [
       '@monaco-editor/react',
-      'react-icons',
+      'react-icons/fi',
+      'react-icons/si',
+      'react-icons/vsc',
+      'react-icons/lu',
       'react-markdown',
       'react-syntax-highlighter'
     ]

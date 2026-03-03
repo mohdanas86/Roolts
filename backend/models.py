@@ -21,6 +21,7 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # API Keys (encrypted in production)
+    openai_api_key = db.Column(db.String(500))
     gemini_api_key = db.Column(db.String(500))
     claude_api_key = db.Column(db.String(500))
     deepseek_api_key = db.Column(db.String(500))
@@ -29,6 +30,7 @@ class User(db.Model):
     
     # Relationships
     social_tokens = db.relationship('SocialToken', back_populates='user', cascade='all, delete-orphan')
+    chat_history = db.relationship('ChatHistory', back_populates='user', cascade='all, delete-orphan')
     
     def set_password(self, password):
         """Hash and set the user's password."""
@@ -48,6 +50,7 @@ class User(db.Model):
             'bio': self.bio,
             'tagline': self.tagline,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'has_openai_key': bool(self.openai_api_key),
             'has_gemini_key': bool(self.gemini_api_key),
             'has_claude_key': bool(self.claude_api_key),
             'has_deepseek_key': bool(self.deepseek_api_key),
@@ -92,6 +95,30 @@ class SocialToken(db.Model):
             'platform_username': self.platform_username,
             'is_valid': self.is_valid(),
             'expires_at': self.expires_at.isoformat() if self.expires_at else None
+        }
+
+class ChatHistory(db.Model):
+    """Stores AI chat history for a user."""
+    __tablename__ = 'chat_histories'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
+    content = db.Column(db.Text, nullable=False)
+    reasoning = db.Column(db.Text)  # Store AI reasoning/thinking
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationship
+    user = db.relationship('User', back_populates='chat_history')
+    
+    def to_dict(self):
+        """Convert chat history to dictionary."""
+        return {
+            'id': self.id,
+            'role': self.role,
+            'content': self.content,
+            'reasoning': self.reasoning,
+            'timestamp': self.created_at.strftime('%I:%M %p') if self.created_at else None
         }
 
 
@@ -243,7 +270,6 @@ def init_db(app):
     with app.app_context():
         db.create_all()
         
-        # Check if we need to add hf_token column to existing database
         try:
             from sqlalchemy import text
             # Use raw SQL to check for column existence and add if missing
@@ -253,6 +279,14 @@ def init_db(app):
             print("[Database] Migrated: Added hf_token column to users table")
         except Exception:
             # Column likely already exists or table is new (create_all handled it)
+            db.session.rollback()
+            
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("ALTER TABLE users ADD COLUMN openai_api_key VARCHAR(500)"))
+            db.session.commit()
+            print("[Database] Migrated: Added openai_api_key column to users table")
+        except Exception:
             db.session.rollback()
     
     return db

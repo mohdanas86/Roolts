@@ -1,6 +1,7 @@
 import React from 'react';
 import { FiX } from 'react-icons/fi';
 import { getFileIcon } from '../services/iconHelper.jsx';
+import { useSettingsStore } from '../store';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -48,7 +49,11 @@ const EditorTab = React.memo(({ file, activeFileId, showOutput, setActiveFile, s
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '16px' }}>
                 {getFileIcon(file.language || 'plaintext')}
             </div>
-            <span style={{ fontSize: '12px' }}>{file.name}</span>
+            <span style={{ fontSize: '12px' }}>
+                {useSettingsStore.getState().features.hideExtensions && file.name.includes('.')
+                    ? file.name.substring(0, file.name.lastIndexOf('.'))
+                    : file.name}
+            </span>
             <span
                 className="editor-tab__close"
                 onClick={(e) => {
