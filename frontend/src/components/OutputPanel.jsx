@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FiTerminal, FiClock, FiTrash2, FiX, FiCheckCircle, FiAlertCircle, FiSquare } from 'react-icons/fi';
+import { FiTerminal, FiClock, FiTrash2, FiX, FiCheckCircle, FiAlertCircle, FiSquare, FiMonitor } from 'react-icons/fi';
 import { useExecutionStore, useUIStore } from '../store';
 import { socketService } from '../services/socketService';
 import { executorService } from '../services/executorService';
 import GUIPreviewPanel from './GUIPreviewPanel';
+import GUIViewer from './GUIViewer';
+import guiExecutorService from '../services/guiExecutorService';
 
 function OutputPanel() {
     const {
@@ -12,10 +14,17 @@ function OutputPanel() {
         appendOutput, setExecuting, setError,
         input, setInput, // Use global input state
         isInteractive, setIsInteractive, // Use global interactive state
-        isSplitMode, activeGui, setActiveGui
+        isSplitMode, activeGui, setActiveGui,
+        setIsGUIExecuting,
     } = useExecutionStore();
     const { setAppPreviewUrl, setRightPanelTab, rightPanelOpen, toggleRightPanel } = useUIStore();
     const [showHistory, setShowHistory] = useState(false);
+    // GUI output tab state
+    const [activeOutputTab, setActiveOutputTab] = useState('terminal'); // 'terminal' | 'gui'
+    const [guiRunning, setGuiRunning] = useState(false);
+    const [guiFinished, setGuiFinished] = useState(null); // { stdout, stderr }
+    const [guiError, setGuiError] = useState(null);
+    const guiViewerRef = useRef(null);
     // Removed local input/interactive state to persist across tab switches
     const outputContentRef = useRef(null);
     const inputRef = useRef(null);
@@ -103,6 +112,36 @@ function OutputPanel() {
         socketService.on('exec:error', handleExecError);
         socketService.on('exec:app-ready', handleAppReady);
 
+        // GUI execution socket listeners
+        const handleGuiFrame = (data) => {
+            if (data && data.frame && guiViewerRef.current) {
+                guiViewerRef.current.drawFrame(data.frame);
+            }
+        };
+        const handleGuiFinished = (data) => {
+            setGuiFinished({ stdout: data?.stdout ?? '', stderr: data?.stderr ?? '' });
+            setGuiRunning(false);
+            setIsGUIExecuting(false);
+        };
+        const handleGuiError = (data) => {
+            setGuiError(data?.message ?? 'Unknown GUI error');
+            setGuiRunning(false);
+            setIsGUIExecuting(false);
+        };
+        const handleGuiStart = () => {
+            // Switch to GUI tab when a GUI run starts
+            setActiveOutputTab('gui');
+            setGuiFinished(null);
+            setGuiError(null);
+            setGuiRunning(true);
+            setIsGUIExecuting(true);
+        };
+
+        socketService.on('gui:frame', handleGuiFrame);
+        socketService.on('gui:finished', handleGuiFinished);
+        socketService.on('gui:error', handleGuiError);
+        socketService.on('gui:start-ack', handleGuiStart);
+
         return () => {
             socketService.off('exec:data', handleExecData);
             socketService.off('exec:started', handleExecStarted);
@@ -110,6 +149,10 @@ function OutputPanel() {
             socketService.off('exec:error', handleExecError);
             socketService.off('exec:app-ready', handleAppReady);
             if (flushFrameId) cancelAnimationFrame(flushFrameId);
+            socketService.off('gui:frame', handleGuiFrame);
+            socketService.off('gui:finished', handleGuiFinished);
+            socketService.off('gui:error', handleGuiError);
+            socketService.off('gui:start-ack', handleGuiStart);
         };
     }, []);
 
@@ -185,75 +228,148 @@ function OutputPanel() {
             </div>
 
             <div className="output-panel__container" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 48px)' }}>
-                {showHistory ? (
-                    <div className="output-panel__history" style={{ flex: 1, overflowY: 'auto' }}>
-                        <h4 style={{ marginBottom: '12px', fontSize: '13px' }}>Execution History</h4>
-                        {history.length === 0 ? (
-                            <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No execution history yet</p>
-                        ) : (
-                            history.map((entry) => (
-                                <div key={entry.id} className="history-item">
-                                    <div className="history-item__header">
-                                        <span className={`history-item__status ${entry.success ? 'success' : 'error'}`}>
-                                            {entry.success ? <FiCheckCircle /> : <FiAlertCircle />}
-                                        </span>
-                                        <span className="history-item__lang">{entry.language}</span>
-                                        <span className="history-item__time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                ) : (
-                    <div className="output-panel__content" ref={outputContentRef} style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column' }}>
-                        {isExecuting && !output && (
-                            <div className="output-panel__loading">
-                                <span className="spinner" /> Initializing execution...
-                            </div>
-                        )}
-                        {error && (
-                            <pre className="output-panel__error" style={{ color: 'var(--status-error)', whiteSpace: 'pre-wrap' }}>{error}</pre>
-                        )}
-                        {output && (
-                            <pre className="output-panel__result" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{output}</pre>
-                        )}
-
-                        {activeGui && (
-                            <div style={{ marginTop: '16px', flexShrink: 0 }}>
-                                <GUIPreviewPanel activeGui={activeGui} onClose={() => setActiveGui(null)} />
-                            </div>
-                        )}
-
-                        {!isExecuting && !output && !error && !activeGui && (
-                            <div className="output-panel__empty">
-                                <FiTerminal size={32} style={{ opacity: 0.3, marginBottom: '8px' }} />
-                                <p>Click "Run" to execute your code</p>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {isInteractive && !showHistory && (
-                    <form onSubmit={handleInputSubmit} className="output-panel__input-form" style={{
-                        padding: '8px 12px',
-                        borderTop: '1px solid var(--border-primary)',
+                {/* Tab switcher — Terminal | GUI Output */}
+                <div
+                    style={{
                         display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        backgroundColor: 'var(--bg-tertiary)'
-                    }}>
-                        <span style={{ color: 'var(--accent-primary)', fontSize: '12px', fontWeight: 'bold' }}>{'>'}</span>
-                        <input
-                            ref={inputRef}
-                            className="input"
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            placeholder="Type input and press Enter..."
-                            style={{ flex: 1, border: 'none', background: 'transparent' }}
-                            autoFocus
-                        />
-                    </form>
-                )}
+                        gap: '2px',
+                        padding: '4px 8px',
+                        borderBottom: '1px solid var(--border-primary)',
+                        background: 'var(--bg-secondary)',
+                        flexShrink: 0,
+                    }}
+                >
+                    <button
+                        className={`btn btn--ghost${activeOutputTab === 'terminal' ? ' btn--active' : ''}`}
+                        onClick={() => setActiveOutputTab('terminal')}
+                        style={{
+                            fontSize: '11px',
+                            padding: '3px 10px',
+                            borderRadius: 'var(--radius-md)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            color: activeOutputTab === 'terminal' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            background: activeOutputTab === 'terminal' ? 'var(--bg-tertiary)' : 'transparent',
+                        }}
+                        title="Terminal output"
+                    >
+                        <FiTerminal size={11} />
+                        Terminal
+                    </button>
+                    <button
+                        className={`btn btn--ghost${activeOutputTab === 'gui' ? ' btn--active' : ''}`}
+                        onClick={() => setActiveOutputTab('gui')}
+                        style={{
+                            fontSize: '11px',
+                            padding: '3px 10px',
+                            borderRadius: 'var(--radius-md)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            color: activeOutputTab === 'gui' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            background: activeOutputTab === 'gui' ? 'var(--bg-tertiary)' : 'transparent',
+                        }}
+                        title="GUI output"
+                    >
+                        <FiMonitor size={11} />
+                        GUI Output
+                        {guiRunning && (
+                            <span
+                                className="spinner"
+                                style={{ width: '8px', height: '8px', borderWidth: '1.5px', marginLeft: '2px' }}
+                            />
+                        )}
+                    </button>
+                </div>
+
+                {/* GUI Output panel — always mounted so guiViewerRef is never null during a run */}
+                <div style={{ display: activeOutputTab === 'gui' ? 'flex' : 'none', flex: 1, overflow: 'hidden', flexDirection: 'column' }}>
+                    <GUIViewer
+                        ref={guiViewerRef}
+                        isRunning={guiRunning}
+                        finished={guiFinished}
+                        error={guiError}
+                        onStop={() => {
+                            guiExecutorService.stopGUI();
+                            setGuiRunning(false);
+                            setIsGUIExecuting(false);
+                        }}
+                    />
+                </div>
+
+                {/* Terminal panel (hidden, not unmounted, when GUI tab is active) */}
+                <div style={{ display: activeOutputTab === 'terminal' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                    {showHistory ? (
+                        <div className="output-panel__history" style={{ flex: 1, overflowY: 'auto' }}>
+                            <h4 style={{ marginBottom: '12px', fontSize: '13px' }}>Execution History</h4>
+                            {history.length === 0 ? (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No execution history yet</p>
+                            ) : (
+                                history.map((entry) => (
+                                    <div key={entry.id} className="history-item">
+                                        <div className="history-item__header">
+                                            <span className={`history-item__status ${entry.success ? 'success' : 'error'}`}>
+                                                {entry.success ? <FiCheckCircle /> : <FiAlertCircle />}
+                                            </span>
+                                            <span className="history-item__lang">{entry.language}</span>
+                                            <span className="history-item__time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    ) : (
+                        <div className="output-panel__content" ref={outputContentRef} style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column' }}>
+                            {isExecuting && !output && (
+                                <div className="output-panel__loading">
+                                    <span className="spinner" /> Initializing execution...
+                                </div>
+                            )}
+                            {error && (
+                                <pre className="output-panel__error" style={{ color: 'var(--status-error)', whiteSpace: 'pre-wrap' }}>{error}</pre>
+                            )}
+                            {output && (
+                                <pre className="output-panel__result" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{output}</pre>
+                            )}
+
+                            {activeGui && (
+                                <div style={{ marginTop: '16px', flexShrink: 0 }}>
+                                    <GUIPreviewPanel activeGui={activeGui} onClose={() => setActiveGui(null)} />
+                                </div>
+                            )}
+
+                            {!isExecuting && !output && !error && !activeGui && (
+                                <div className="output-panel__empty">
+                                    <FiTerminal size={32} style={{ opacity: 0.3, marginBottom: '8px' }} />
+                                    <p>Click "Run" to execute your code</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {isInteractive && !showHistory && (
+                        <form onSubmit={handleInputSubmit} className="output-panel__input-form" style={{
+                            padding: '8px 12px',
+                            borderTop: '1px solid var(--border-primary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            backgroundColor: 'var(--bg-tertiary)'
+                        }}>
+                            <span style={{ color: 'var(--accent-primary)', fontSize: '12px', fontWeight: 'bold' }}>{'>'}</span>
+                            <input
+                                ref={inputRef}
+                                className="input"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                placeholder="Type input and press Enter..."
+                                style={{ flex: 1, border: 'none', background: 'transparent' }}
+                                autoFocus
+                            />
+                        </form>
+                    )}
+                </div>{/* end terminal panel wrapper */}
             </div>
 
             <style>{`

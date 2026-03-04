@@ -183,6 +183,10 @@ socketio = SocketIO(
     async_mode='threading'
 )
 
+# Register GUI execution socket events
+from routes.gui_execute import register_gui_events
+register_gui_events(socketio)
+
 # Socket Events
 @socketio.on('connect')
 def handle_connect():
@@ -969,6 +973,10 @@ def handle_disconnect_with_lsp():
     
     # 2. Clean up any active executions
     _internal_stop_execution(session_id)
+
+    # 3. Clean up any active GUI sessions
+    from services.gui_executor import stop_all_for_session as _stop_gui
+    _stop_gui(session_id)
     
     print(f"Client disconnected: {session_id}")
 

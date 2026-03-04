@@ -4,12 +4,16 @@ FROM python:3.10-slim
 # Install system dependencies
 # - openjdk-17-jre-headless: For executing Java code
 # - nodejs & npm: For executing JavaScript code
+# - xvfb, scrot, x11-utils: For headless GUI execution (GUI Viewer feature)
 RUN apt-get update && apt-get install -y \
     openjdk-17-jre-headless \
     nodejs \
     npm \
     build-essential \
     golang-go \
+    xvfb \
+    scrot \
+    x11-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory

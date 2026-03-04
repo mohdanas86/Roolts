@@ -4,6 +4,7 @@ import { LuEraser } from 'react-icons/lu';
 import { useFileStore, useExecutionStore, useSettingsStore, useUIStore } from '../store';
 import { executorService } from '../services/executorService';
 import socketService from '../services/socketService';
+import { isGUICode, detectGUILibrary } from '../utils/detectGUI';
 import {
     DndContext,
     closestCenter,
@@ -37,6 +38,8 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
     const setShowOutput = useExecutionStore(state => state.setShowOutput);
     const isSplitMode = useExecutionStore(state => state.isSplitMode);
     const setSplitMode = useExecutionStore(state => state.setSplitMode);
+    const isGUIExecuting = useExecutionStore(state => state.isGUIExecuting);
+    const setIsGUIExecuting = useExecutionStore(state => state.setIsGUIExecuting);
 
     const features = useSettingsStore(state => state.features);
     const addNotification = useUIStore(state => state.addNotification);
@@ -114,6 +117,9 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
         const activeFile = useFileStore.getState().files.find(f => f.id === activeFileId);
         if (!activeFile) return addNotification({ type: 'error', message: 'No file selected' });
 
+        // Guard: do not start a new run if one is already in progress
+        if (useExecutionStore.getState().isExecuting || useExecutionStore.getState().isGUIExecuting) return;
+
         const isWeb = activeFile.language === 'html' ||
             (activeFile.language === 'javascript' && (activeFile.content.includes('import React') || activeFile.name.endsWith('.jsx')));
 
@@ -121,6 +127,18 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
         if (isWeb && !activeFile.content.includes('express') && !activeFile.content.includes('http')) {
             if (!useUIStore.getState().rightPanelOpen) useUIStore.getState().toggleRightPanel();
             useUIStore.getState().setRightPanelTab('preview');
+            return;
+        }
+
+        // GUI execution path — detected via import patterns
+        if (isGUICode(activeFile.content, activeFile.language)) {
+            useExecutionStore.getState().setShowOutput(true);
+            useExecutionStore.getState().setIsGUIExecuting(true);
+            // Emit gui:start — OutputPanel listens for gui:frame/gui:finished/gui:error
+            socketService.emit('gui:start', {
+                language: activeFile.language,
+                code: activeFile.content,
+            });
             return;
         }
 
@@ -168,6 +186,21 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
     }, [handleRunCode]);
 
     const isExecuting = useExecutionStore(state => state.isExecuting);
+
+    // Active file content + language for the GUI badge
+    const activeFileForBadge = useFileStore(
+        state => {
+            const f = state.files.find(file => file.id === state.activeFileId);
+            return f ? { content: f.content, language: f.language } : null;
+        },
+        (a, b) => a?.language === b?.language && a?.content === b?.content
+    );
+    const showGUIBadge = activeFileForBadge
+        ? isGUICode(activeFileForBadge.content, activeFileForBadge.language)
+        : false;
+    const guiLibLabel = showGUIBadge && activeFileForBadge
+        ? detectGUILibrary(activeFileForBadge.content, activeFileForBadge.language)
+        : '';
 
     return (
         <div className="editor-tabs">
@@ -285,11 +318,34 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
                 </div>
             )}
 
+            {/* GUI detection badge */}
+            {showGUIBadge && (
+                <span
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-md)',
+                        background: 'rgba(63, 185, 80, 0.1)',
+                        border: '1px solid rgba(63, 185, 80, 0.3)',
+                        color: 'var(--success)',
+                        flexShrink: 0,
+                        whiteSpace: 'nowrap',
+                        marginRight: '4px',
+                    }}
+                    title={`${guiLibLabel} — will open in GUI viewer`}
+                >
+                    🖼️ {guiLibLabel} — GUI viewer
+                </span>
+            )}
+
             {/* Run Button */}
             <button
                 className="btn btn--success"
                 onClick={handleRunCode}
-                disabled={isExecuting}
+                disabled={isExecuting || isGUIExecuting}
                 style={{
                     marginRight: '8px',
                     padding: '4px 16px',
@@ -302,8 +358,8 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
                     color: 'white',
                     border: 'none',
                     borderRadius: 'var(--radius-md)',
-                    cursor: isExecuting ? 'not-allowed' : 'pointer',
-                    opacity: isExecuting ? 0.7 : 1,
+                    cursor: (isExecuting || isGUIExecuting) ? 'not-allowed' : 'pointer',
+                    opacity: (isExecuting || isGUIExecuting) ? 0.7 : 1,
                     flexShrink: 0,
                     whiteSpace: 'nowrap',
                     boxShadow: '0 4px 10px rgba(63, 185, 80, 0.3)',
@@ -311,7 +367,7 @@ function EditorTabs({ isScribbleMode, toggleScribbleMode, scribbleTool, setScrib
                 }}
                 title="Run Code (Ctrl+Enter)"
             >
-                {isExecuting ? <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} /> : <FiPlay size={12} fill="currentColor" />}
+                {(isExecuting || isGUIExecuting) ? <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} /> : <FiPlay size={12} fill="currentColor" />}
                 <span>Run</span>
             </button>
 

@@ -781,6 +781,8 @@ export const useExecutionStore = create(
             inputRequestOpen: false,
             isInteractive: false,
             activeGui: null,
+            // GUI execution state (used by EditorTabs + OutputPanel)
+            isGUIExecuting: false,
 
 
 
@@ -801,6 +803,7 @@ export const useExecutionStore = create(
             setInputRequestOpen: (inputRequestOpen) => set({ inputRequestOpen }),
             setIsInteractive: (isInteractive) => set({ isInteractive }),
             setActiveGui: (activeGui) => set({ activeGui }),
+            setIsGUIExecuting: (isGUIExecuting) => set({ isGUIExecuting }),
 
 
 

@@ -40,6 +40,10 @@ gunicorn>=21.2.0
 # Real-time Communication
 flask-socketio>=5.3.6
 eventlet>=0.33.3
+simple-websocket>=0.9.0
+
+# Image processing (GUI frame capture)
+Pillow>=10.0.0
 
 # Virtual Environment Support
 docker>=7.0.0
