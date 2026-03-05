@@ -401,11 +401,11 @@ function CodeChampApp({ onClose }) {
                         )}
                     </div>
                     <button
-                        className="btn btn--primary"
+                        className="btn btn--primary border border-red-500"
                         onClick={runCode}
                         disabled={isRunning || !activeFile}
                         title="Run Program"
-                        style={{ borderRadius: '8px', fontSize: '13px', fontWeight: '700', padding: '0 16px', background: 'linear-gradient(135deg, var(--success), #2ea043)' }}
+
                     >
                         {isRunning ? <span className="spinner" style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} /> : <FiPlay size={14} fill="currentColor" />}
                         <span style={{ marginLeft: '6px' }}>{isRunning ? 'RUNNING...' : 'RUN'}</span>
