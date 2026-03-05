@@ -1082,13 +1082,6 @@ function CodeChampApp({ onClose }) {
                                         className="btn btn--primary"
                                         onClick={runLeetcodeTests}
                                         disabled={isTestRunning}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                                            padding: '10px 20px', fontWeight: '600', fontSize: '14px',
-                                            background: isTestRunning ? 'var(--bg-tertiary)' : 'linear-gradient(135deg, #f59e0b, #ef4444)',
-                                            border: 'none', borderRadius: '10px', cursor: isTestRunning ? 'wait' : 'pointer',
-                                            color: '#fff', transition: 'all 0.2s'
-                                        }}
                                     >
                                         <FiPlay size={16} /> {isTestRunning ? 'Running Tests...' : 'Run Tests'}
                                     </button>
